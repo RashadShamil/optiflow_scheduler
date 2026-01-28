@@ -2,8 +2,8 @@ import os
 from supabase import create_client, Client
 
 # --- PASTE YOUR CREDENTIALS HERE ---
-url = "https://your-project-url.supabase.co"  # Paste your Project URL here
-key = "your-anon-key-starts-with-eyJh..."     # Paste your 'anon' Key here
+url = "https://rtqgwssnrqjjmgpnttgq.supabase.co"  # Paste your Project URL here
+key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ0cWd3c3NucnFqam1ncG50dGdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk2MTg2MDMsImV4cCI6MjA4NTE5NDYwM30.9xXUA7MxrLgPMi2P9GmcyAnbU242xRgvbmenNLg8iE4"     # Paste your 'anon' Key here
 # -----------------------------------
 
 def test_the_brain():
