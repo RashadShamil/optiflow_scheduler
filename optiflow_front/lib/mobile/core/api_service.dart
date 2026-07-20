@@ -107,6 +107,15 @@ class ApiService {
     _check(res);
   }
 
+  /// Publish a DRAFT job — changes its status to OPEN so workers can
+  /// see and claim it in the Job Market. Called by manager-role users.
+  Future<Map<String, dynamic>> publishJob(String jobId) async {
+    final uri = Uri.parse('$_base/api/jobs/$jobId/publish');
+    final res = await http.patch(uri, headers: _headers());
+    _check(res);
+    return Map<String, dynamic>.from(json.decode(res.body));
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // MACHINES / RESOURCES  (main.py → /machines, /book_machine)
   // ─────────────────────────────────────────────────────────────────────────

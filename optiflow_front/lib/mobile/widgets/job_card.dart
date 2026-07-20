@@ -5,7 +5,8 @@ import '../core/app_theme.dart';
 import '../core/auth_service.dart';
 import '../models/job_model.dart';
 
-/// Card for the Job Market feed — shows title, client, quantity badge, deadline.
+/// Card for the Job Market feed — shows title, client, quantity badge, deadline,
+/// and task count. Supports OPEN and non-OPEN (taken/in-progress) states.
 class JobCard extends StatelessWidget {
   final JobModel job;
   final VoidCallback onTap;
@@ -26,7 +27,7 @@ class JobCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                StatusBadge(status: job.status),
+                JobStatusBadge(status: job.status),
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -77,6 +78,19 @@ class JobCard extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                       color: AppColors.textPrimary),
                 ),
+                if (job.taskCount > 0) ...[
+                  const SizedBox(width: 16),
+                  const Icon(Icons.checklist_rounded,
+                      size: 16, color: AppColors.textDisabled),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${job.taskCount} task${job.taskCount > 1 ? 's' : ''}',
+                    style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary),
+                  ),
+                ],
                 const Spacer(),
                 const Icon(Icons.chevron_right_rounded,
                     color: AppColors.textDisabled),
@@ -84,6 +98,65 @@ class JobCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Job Status Badge — dot + label, colour-coded per job status
+// ─────────────────────────────────────────────────────────────────────────────
+class JobStatusBadge extends StatelessWidget {
+  final String status;
+  const JobStatusBadge({super.key, required this.status});
+
+  Color get _color {
+    switch (status) {
+      case 'OPEN':        return const Color(0xFF27AE72); // green
+      case 'TAKEN':       return const Color(0xFFF5A623); // amber
+      case 'IN_PROGRESS': return const Color(0xFF5B8DEF); // blue
+      case 'COMPLETED':   return const Color(0xFF8E8E93); // grey
+      case 'DRAFT':       return const Color(0xFFAEAEB2); // muted grey
+      default:            return const Color(0xFFAEAEB2);
+    }
+  }
+
+  String get _label {
+    switch (status) {
+      case 'OPEN':        return 'OPEN';
+      case 'TAKEN':       return 'CLAIMED';
+      case 'IN_PROGRESS': return 'IN PROGRESS';
+      case 'COMPLETED':   return 'COMPLETED';
+      case 'DRAFT':       return 'DRAFT';
+      default:            return status;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: _color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _color.withOpacity(0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7, height: 7,
+            decoration: BoxDecoration(color: _color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            _label,
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: _color),
+          ),
+        ],
       ),
     );
   }
@@ -147,6 +220,8 @@ class _JobBottomSheetState extends State<JobBottomSheet> {
   @override
   Widget build(BuildContext context) {
     final j = widget.job;
+    final canClaim = j.status == 'OPEN';
+
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -160,7 +235,7 @@ class _JobBottomSheetState extends State<JobBottomSheet> {
           const SheetHandle(),
           const SizedBox(height: 16),
 
-          StatusBadge(status: j.status),
+          JobStatusBadge(status: j.status),
           const SizedBox(height: 12),
 
           Text(
@@ -187,10 +262,15 @@ class _JobBottomSheetState extends State<JobBottomSheet> {
               '${j.totalQuantity} units'),
           const SizedBox(height: 14),
           _row(Icons.calendar_today_rounded, 'Deadline', j.formattedDeadline),
+          if (j.taskCount > 0) ...[
+            const SizedBox(height: 14),
+            _row(Icons.checklist_rounded, 'Tasks',
+                '${j.taskCount} task${j.taskCount > 1 ? 's' : ''} in this order'),
+          ],
 
           const SizedBox(height: 32),
 
-          if (j.status == 'OPEN')
+          if (canClaim)
             SizedBox(
               width: double.infinity,
               height: 60,
@@ -215,7 +295,13 @@ class _JobBottomSheetState extends State<JobBottomSheet> {
               ),
               alignment: Alignment.center,
               child: Text(
-                'Already Taken',
+                j.status == 'TAKEN'
+                    ? 'Already Claimed'
+                    : j.status == 'IN_PROGRESS'
+                        ? 'In Progress'
+                        : j.status == 'COMPLETED'
+                            ? 'Completed'
+                            : 'Not Available',
                 style: TextStyle(
                     color: AppColors.textDisabled,
                     fontWeight: FontWeight.w700,
@@ -258,3 +344,5 @@ class _JobBottomSheetState extends State<JobBottomSheet> {
     );
   }
 }
+
+

@@ -152,16 +152,24 @@ class StatusBadge extends StatelessWidget {
 
   Color get _color {
     switch (status.toUpperCase()) {
-      case 'SCHEDULED': return AppColors.scheduled;
+      case 'SCHEDULED':   return AppColors.scheduled;
       case 'IN_PROGRESS': return AppColors.inProgress;
-      case 'COMPLETED': return AppColors.completed;
-      case 'OPEN': return AppColors.completed;
-      case 'OFFLINE': return AppColors.offline;
-      default: return AppColors.textDisabled;
+      case 'COMPLETED':   return AppColors.completed;
+      case 'OPEN':        return AppColors.completed;   // green — job is available
+      case 'TAKEN':       return AppColors.scheduled;   // amber — job is claimed
+      case 'OFFLINE':     return AppColors.offline;
+      case 'DRAFT':       return AppColors.textDisabled;
+      default:            return AppColors.textDisabled;
     }
   }
 
-  String get _label => status.replaceAll('_', ' ');
+  String get _label {
+    switch (status.toUpperCase()) {
+      case 'TAKEN':       return 'CLAIMED';
+      case 'IN_PROGRESS': return 'IN PROGRESS';
+      default:            return status.replaceAll('_', ' ');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -183,6 +191,7 @@ class StatusBadge extends StatelessWidget {
     );
   }
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pulsing Dot indicator for machine status

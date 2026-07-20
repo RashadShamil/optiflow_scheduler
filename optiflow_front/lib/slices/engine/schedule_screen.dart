@@ -14,8 +14,9 @@ class ScheduleScreen extends StatefulWidget {
 
 class _ScheduleScreenState extends State<ScheduleScreen> {
   final ApiService _apiService = ApiService();
+  // Renamed: holds ALL resources (machines + humans) for the Gantt rows
   List<Booking> _bookings = [];
-  List<Machine> _machines = [];
+  List<Machine> _resources = [];
   bool _isLoading = true;
   DateTime _selectedDate = DateTime.now();
 
@@ -27,13 +28,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   Future<void> _fetchData() async {
     setState(() { _isLoading = true; });
-    final machines = await _apiService.fetchMachines();
-    final bookings = await _apiService.fetchBookings();
+    // fetchMachines() now returns ALL resource types (MACHINE + HUMAN)
+    final resources = await _apiService.fetchMachines();
+    final bookings  = await _apiService.fetchBookings();
 
     if (mounted) {
       setState(() {
-        _machines = machines;
-        _bookings = bookings;
+        _resources = resources;
+        _bookings  = bookings;
         _isLoading = false;
       });
     }
@@ -138,55 +140,66 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             ),
             SizedBox(height: 8),
             Text(
-              "Manage machine bookings and prevent scheduling conflicts",
+              "Live schedule for all resources — machines and workers",
               style: TextStyle(fontSize: 16, color: AppColors.textSecondary),
             ),
           ],
         ),
-        GestureDetector(
-          onTap: () => _showNewBookingDialog(context),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            decoration: BoxDecoration(
-              gradient: AppColors.primaryGradient,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primary.withOpacity(0.4),
-                  blurRadius: 12,
-                  offset: const Offset(0, 6),
-                ),
-              ],
+        Row(
+          children: [
+            // Refresh button
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded, color: AppColors.primary, size: 24),
+              tooltip: 'Refresh schedule',
+              onPressed: _fetchData,
             ),
-            child: const Row(
-              children: [
-                Icon(Icons.add, color: Colors.white, size: 20),
-                SizedBox(width: 8),
-                Text(
-                  "New Booking",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                  ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () => _showNewBookingDialog(context),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primary.withOpacity(0.4),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
                 ),
-              ],
+                child: const Row(
+                  children: [
+                    Icon(Icons.add, color: Colors.white, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      "New Booking",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
+          ],
         ),
       ],
     );
   }
 
   void _showNewBookingDialog(BuildContext context) {
-    if (_machines.isEmpty) {
+    if (_resources.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("No machines available. Please add machines first."), backgroundColor: AppColors.warning),
+        const SnackBar(content: Text("No resources available. Please add machines or workers first."), backgroundColor: AppColors.warning),
       );
       return;
     }
 
-    String? selectedMachineId = _machines.first.id;
+    String? selectedMachineId = _resources.first.id;
     DateTime? startDateTime;
     DateTime? endDateTime;
     final nameController = TextEditingController();
@@ -252,7 +265,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                           dropdownColor: AppColors.surfaceLight,
                           style: const TextStyle(color: AppColors.textPrimary, fontSize: 15),
                           icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.textSecondary),
-                          items: _machines.map((m) {
+                          items: _resources.map((m) {
                             return DropdownMenuItem<String>(
                               value: m.id,
                               child: Text(m.name),
@@ -561,6 +574,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
+  // ── Gantt timeline constants ──────────────────────────────────────────────
+  // Show a full 24-hour window so tasks scheduled at any time of day are visible.
+  // The optimizer uses datetime.now(utc) as the project start, so tasks can
+  // start at any local hour depending on the machine's timezone.
+  static const int _kStartHour = 0;  // 00:00
+  static const int _kEndHour   = 24; // 24:00  (exclusive — last column is 23:00)
+  static const int _kTotalHours = _kEndHour - _kStartHour; // 24 columns
+
   Widget _buildTimeline() {
     return Container(
       decoration: BoxDecoration(
@@ -579,7 +600,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         children: [
           _buildTimelineHeader(),
           Divider(height: 1, color: AppColors.surfaceLight.withOpacity(0.5)),
-          if (_machines.isEmpty)
+          if (_resources.isEmpty)
             Padding(
               padding: const EdgeInsets.all(48.0),
               child: Column(
@@ -587,7 +608,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   Icon(Icons.precision_manufacturing_outlined, size: 48, color: AppColors.textSecondary.withOpacity(0.3)),
                   const SizedBox(height: 16),
                   Text(
-                    "No machines registered yet.\nGo to Machines to add one.",
+                    "No resources registered yet.\nGo to Admin → Resources to add one.",
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppColors.textSecondary.withOpacity(0.7), fontStyle: FontStyle.italic),
                   ),
@@ -595,7 +616,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               ),
             )
           else
-            ..._machines.map((machine) => _buildMachineTimelineRow(machine)),
+            ..._resources.map((resource) => _buildMachineTimelineRow(resource)),
           Divider(height: 1, color: AppColors.surfaceLight.withOpacity(0.5)),
           _buildTimelineFooter(),
         ],
@@ -612,14 +633,15 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           Expanded(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: List.generate(11, (index) {
-                final hour = 8 + index;
-                final ampm = hour < 12 ? "AM" : "PM";
-                final hourDisplay = hour <= 12 ? hour : hour - 12;
+              // Show every 2 hours (0, 2, 4 ... 22) = 12 labels across 24h
+              children: List.generate(12, (index) {
+                final hour = _kStartHour + (index * 2);
+                final ampm = hour < 12 ? 'AM' : 'PM';
+                final h12 = hour == 0 ? 12 : (hour <= 12 ? hour : hour - 12);
                 return Expanded(
                   child: Center(
                     child: Text(
-                      "$hourDisplay $ampm",
+                      '$h12 $ampm',
                       style: const TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 12,
@@ -636,13 +658,15 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
-  Widget _buildMachineTimelineRow(Machine machine) {
-    final machineBookings = _bookings
-        .where((b) => b.machineId == machine.id &&
-            b.startTime.year == _selectedDate.year &&
+  Widget _buildMachineTimelineRow(Machine resource) {
+    final resourceBookings = _bookings
+        .where((b) => b.machineId == resource.id &&
+            b.startTime.year  == _selectedDate.year &&
             b.startTime.month == _selectedDate.month &&
-            b.startTime.day == _selectedDate.day)
+            b.startTime.day   == _selectedDate.day)
         .toList();
+
+    final isHuman = resource.type == 'HUMAN';
 
     return Container(
       height: 80,
@@ -659,33 +683,55 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  machine.name,
+                  resource.name,
                   style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: machine.status == 'ACTIVE'
-                        ? AppColors.success.withOpacity(0.15)
-                        : machine.status == 'IDLE'
-                            ? AppColors.warning.withOpacity(0.15)
-                            : AppColors.error.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    machine.status,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: machine.status == 'ACTIVE'
-                          ? AppColors.success
-                          : machine.status == 'IDLE'
-                              ? AppColors.warning
-                              : AppColors.error,
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isHuman
+                            ? AppColors.secondary.withOpacity(0.15)
+                            : AppColors.primary.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        isHuman ? 'WORKER' : 'MACHINE',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: isHuman ? AppColors.secondary : AppColors.primary,
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: resource.status == 'ACTIVE'
+                            ? AppColors.success.withOpacity(0.15)
+                            : resource.status == 'IDLE'
+                                ? AppColors.warning.withOpacity(0.15)
+                                : AppColors.error.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        resource.status,
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: resource.status == 'ACTIVE'
+                              ? AppColors.success
+                              : resource.status == 'IDLE'
+                                  ? AppColors.warning
+                                  : AppColors.error,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -694,21 +740,45 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             child: Stack(
               children: [
                 Row(
-                  children: List.generate(11, (index) {
+                  children: List.generate(_kTotalHours, (index) {
+                    // Highlight every other hour for readability; bold line at noon
+                    final hour = _kStartHour + index;
                     return Expanded(
                       child: Container(
                         decoration: BoxDecoration(
+                          color: index.isEven
+                              ? Colors.transparent
+                              : AppColors.surfaceLight.withOpacity(0.04),
                           border: Border(
-                            left: BorderSide(color: AppColors.surfaceLight.withOpacity(0.2)),
+                            left: BorderSide(
+                              color: hour == 12
+                                  ? AppColors.surfaceLight.withOpacity(0.5)
+                                  : AppColors.surfaceLight.withOpacity(0.15),
+                              width: hour == 12 ? 1.5 : 1.0,
+                            ),
                           ),
                         ),
                       ),
                     );
                   }),
                 ),
-                ...machineBookings.map(
-                  (booking) => _buildBookingBlock(booking),
-                ),
+                if (resourceBookings.isEmpty)
+                  Positioned.fill(
+                    child: Center(
+                      child: Text(
+                        'No tasks scheduled',
+                        style: TextStyle(
+                          color: AppColors.textSecondary.withOpacity(0.3),
+                          fontSize: 11,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  ...resourceBookings.map(
+                    (booking) => _buildBookingBlock(booking),
+                  ),
               ],
             ),
           ),
@@ -718,19 +788,21 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 
   Widget _buildBookingBlock(Booking booking) {
-    final startHour = booking.startTime.hour + (booking.startTime.minute / 60);
-    final offsetStart = startHour - 8;
-    if (offsetStart < 0) return const SizedBox();
+    // Use 24-hour window starting at _kStartHour (0 = midnight)
+    final startHour = booking.startTime.hour + (booking.startTime.minute / 60.0);
+    final offsetHours = startHour - _kStartHour; // offset from midnight
+    if (offsetHours < 0 || offsetHours >= _kTotalHours) return const SizedBox();
 
-    final leftPercent = offsetStart * 10;
-    final widthPercent = booking.durationHours * 10;
+    // Position as a fraction of the total 24-hour window
+    final leftPercent  = (offsetHours / _kTotalHours) * 100.0;
+    final widthPercent = (booking.durationHours / _kTotalHours) * 100.0;
     final isConflict = booking.status == "CONFLICT";
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final totalWidth = constraints.maxWidth;
-        final left = totalWidth * (leftPercent / 100) / 1.1;
-        final width = totalWidth * (widthPercent / 100) / 1.1;
+        final left  = totalWidth * (leftPercent  / 100.0);
+        final width = totalWidth * (widthPercent / 100.0);
 
         Color color;
         if (isConflict) {
@@ -817,19 +889,37 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   Widget _buildTimelineFooter() {
     return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.lightbulb_outline, color: AppColors.warning, size: 16),
-          const SizedBox(width: 8),
-          const Text(
-            "Click \"New Booking\" to schedule a machine",
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          // Hint text — gets its own full-width line so it never clips
+          Row(
+            children: [
+              const Icon(Icons.lightbulb_outline, color: AppColors.warning, size: 15),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Timeline shows all 24 hours (local time) · Optimized tasks appear automatically after running the scheduler',
+                  style: TextStyle(
+                    color: AppColors.textSecondary.withOpacity(0.75),
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 24),
-          _buildLegendInd(AppColors.secondary, "Booking"),
-          const SizedBox(width: 16),
-          _buildLegendInd(AppColors.error, "Conflict"),
+          const SizedBox(height: 12),
+          // Legend — Wrap so it reflows on narrow screens
+          Wrap(
+            spacing: 20,
+            runSpacing: 8,
+            children: [
+              _buildLegendInd(const Color(0xFF0EA5E9), 'Machine Task'),
+              _buildLegendInd(AppColors.secondary, 'Worker Task'),
+              _buildLegendInd(AppColors.error, 'Conflict'),
+            ],
+          ),
         ],
       ),
     );

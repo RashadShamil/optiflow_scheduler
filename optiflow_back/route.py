@@ -283,11 +283,69 @@ def get_analytics_jobs(days: int = Query(30, ge=1, le=365)):
 # SLICE 3: VIKASHAN'S WORKER EXECUTION & SCHEDULE
 # =====================================================================
 
+@router.get("/jobs/{job_id}")
+def get_single_job(job_id: str):
+    """Fetches a single job with its tasks by ID."""
+    job_res = supabase.table("jobs").select("*").eq("id", job_id).execute()
+    if not job_res.data:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = job_res.data[0]
+    # Fetch tasks for this job
+    tasks_res = supabase.table("tasks").select(
+        "*, operation_types(name), resources(name)"
+    ).eq("job_id", job_id).execute()
+    job["tasks"] = tasks_res.data or []
+    return job
+
+
+@router.patch("/jobs/{job_id}/publish")
+def publish_job(job_id: str):
+    """
+    Called by the desktop manager app to publish a DRAFT job.
+    Changes status from DRAFT → OPEN so workers can see and claim it in the
+    mobile Job Market screen.
+    """
+    # Verify the job exists and is in DRAFT status
+    job_res = supabase.table("jobs").select("id, status").eq("id", job_id).execute()
+    if not job_res.data:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    current_status = job_res.data[0].get("status", "")
+    if current_status == "OPEN":
+        return {"message": "Job is already published (OPEN).", "job_id": job_id}
+    if current_status in ("COMPLETED", "IN_PROGRESS"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot publish a job that is already {current_status}."
+        )
+
+    # Update status to OPEN
+    res = supabase.table("jobs").update({"status": "OPEN"}).eq("id", job_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="Failed to publish job.")
+
+    return {
+        "message": "Job published successfully! Workers can now see it in the Job Market.",
+        "job_id": job_id,
+        "status": "OPEN"
+    }
+
+
 @router.get("/schedule")
 def get_schedule():
-    """Fetches all scheduled tasks to display on the global schedule/calendar."""
-    # Fetch tasks that have moved past PENDING
-    res = supabase.table("tasks").select("*, jobs(title), resources(name)").neq("status", "PENDING").execute()
+    """
+    Fetches all scheduled/in-progress tasks to display on the global Gantt chart.
+    Returns tasks with status SCHEDULED or IN_PROGRESS so the frontend can render
+    them as blocks mapped to resource rows by 'assigned_resource_id'.
+    """
+    res = (
+        supabase.table("tasks")
+        .select("id, name, status, quantity_to_process, assigned_resource_id, "
+                "scheduled_start_time, scheduled_end_time, "
+                "jobs(id, title), resources(id, name, type)")
+        .in_("status", ["SCHEDULED", "IN_PROGRESS", "COMPLETED"])
+        .execute()
+    )
     return res.data
 
 @router.get("/tasks")

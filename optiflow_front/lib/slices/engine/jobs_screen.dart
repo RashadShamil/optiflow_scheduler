@@ -8,7 +8,7 @@ import 'package:optiflow_scheduler/core/utils/app_colors.dart';
 import 'package:optiflow_scheduler/slices/engine/dashboard/widgets/new_job_order.dart';
 
 /// Jobs screen — two-pane layout:
-///   Left: Existing jobs from Supabase (expandable, with tasks + Optimize button)
+///   Left: Existing jobs split into Draft/Open tab and Scheduled tab
 ///   Right: New Job Order form
 class JobsScreen extends StatefulWidget {
   const JobsScreen({super.key});
@@ -17,16 +17,30 @@ class JobsScreen extends StatefulWidget {
   State<JobsScreen> createState() => _JobsScreenState();
 }
 
-class _JobsScreenState extends State<JobsScreen> {
+class _JobsScreenState extends State<JobsScreen> with SingleTickerProviderStateMixin {
   List<Map<String, dynamic>> _jobs = [];
   bool _isLoading = true;
   final Set<String> _expanded = {};
   final Map<String, bool> _optimizing = {};
+  final Map<String, bool> _publishing = {};
+  late final TabController _tabController;
+
+  // Statuses that represent "active" (not yet scheduled/done)
+  static const _activeStatuses  = {'DRAFT', 'OPEN', 'TAKEN', 'IN_PROGRESS'};
+  // Statuses that represent "scheduled/done"
+  static const _scheduledStatuses = {'SCHEDULED', 'COMPLETED'};
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _fetchJobs();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchJobs() async {
@@ -66,15 +80,19 @@ class _JobsScreenState extends State<JobsScreen> {
         String msg = '✅ Schedule ${quality == 'optimal' ? 'optimally' : 'feasibly'} computed';
         if (makespan != null) msg += ' — makespan: ${makespan} min';
         if (skipped > 0)      msg += ' ($skipped task(s) skipped)';
+        msg += '  ·  See the "Scheduled" tab ↓';
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(msg),
             backgroundColor: quality == 'optimal' ? AppColors.success : AppColors.warning,
             behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
           ),
         );
-        _fetchJobs();
+        await _fetchJobs();
+        // Auto-switch to the Scheduled tab so the user sees the result
+        _tabController.animateTo(1);
       } else {
         // Show the exact error detail from the backend, not just the status code
         String detail = 'Optimization failed (${resp.statusCode})';
@@ -108,8 +126,41 @@ class _JobsScreenState extends State<JobsScreen> {
   }
 
 
+  Future<void> _publishJob(String jobId) async {
+    setState(() => _publishing[jobId] = true);
+    try {
+      await ApiService().publishJob(jobId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '✅ Job published! Workers can now see it in the Job Market.'
+          ),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      _fetchJobs(); // Refresh the list so status updates
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to publish: $e'),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _publishing[jobId] = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final activeJobs    = _jobs.where((j) => _activeStatuses.contains(j['status']?.toString())).toList();
+    final scheduledJobs = _jobs.where((j) => _scheduledStatuses.contains(j['status']?.toString())).toList();
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
       child: Column(
@@ -125,7 +176,7 @@ class _JobsScreenState extends State<JobsScreen> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(flex: 5, child: _buildJobsList()),
+                      Expanded(flex: 5, child: _buildJobsList(activeJobs, scheduledJobs)),
                       const SizedBox(width: 32),
                       Expanded(
                         flex: 6,
@@ -140,7 +191,7 @@ class _JobsScreenState extends State<JobsScreen> {
               }
               return Column(
                 children: [
-                  _buildJobsList(),
+                  _buildJobsList(activeJobs, scheduledJobs),
                   const SizedBox(height: 32),
                   NewJobOrder(onJobCreated: _fetchJobs),
                 ],
@@ -165,14 +216,14 @@ class _JobsScreenState extends State<JobsScreen> {
         ),
         SizedBox(height: 8),
         Text(
-          "View existing print jobs, their tasks, and create new orders.",
+          "Create job orders and publish them to the mobile Job Market for workers to claim.",
           style: TextStyle(fontSize: 16, color: AppColors.textSecondary),
         ),
       ],
     );
   }
 
-  Widget _buildJobsList() {
+  Widget _buildJobsList(List<Map<String, dynamic>> activeJobs, List<Map<String, dynamic>> scheduledJobs) {
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -189,14 +240,14 @@ class _JobsScreenState extends State<JobsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header bar
+          // Header bar with tab selector
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  "Existing Jobs (${_jobs.length})",
+                  "Jobs",
                   style: const TextStyle(
                     fontSize: 18, fontWeight: FontWeight.bold,
                     color: AppColors.textPrimary,
@@ -210,6 +261,47 @@ class _JobsScreenState extends State<JobsScreen> {
               ],
             ),
           ),
+          // Tab bar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TabBar(
+              controller: _tabController,
+              indicatorColor: AppColors.primary,
+              labelColor: AppColors.primary,
+              unselectedLabelColor: AppColors.textSecondary,
+              labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              tabs: [
+                Tab(text: 'Active (${activeJobs.length})'),
+                Tab(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Scheduled'),
+                      if (scheduledJobs.isNotEmpty) ...
+                        [
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.success.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${scheduledJobs.length}',
+                              style: const TextStyle(
+                                color: AppColors.success,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
           Divider(height: 1, color: AppColors.surfaceLight.withOpacity(0.5)),
 
           if (_isLoading)
@@ -217,38 +309,54 @@ class _JobsScreenState extends State<JobsScreen> {
               padding: EdgeInsets.all(48),
               child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
             )
-          else if (_jobs.isEmpty)
-            Padding(
-              padding: const EdgeInsets.all(48),
-              child: Center(
-                child: Column(
-                  children: [
-                    Icon(Icons.inventory_2_outlined, size: 48,
-                        color: AppColors.textSecondary.withOpacity(0.3)),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No jobs yet.\nCreate your first job order on the right.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: AppColors.textSecondary.withOpacity(0.7),
-                        fontStyle: FontStyle.italic, fontSize: 15,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
           else
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _jobs.length,
-              separatorBuilder: (_, __) =>
-                  Divider(height: 1, color: AppColors.surfaceLight.withOpacity(0.3)),
-              itemBuilder: (_, i) => _buildJobTile(_jobs[i]),
+            SizedBox(
+              // Fixed height so it doesn't expand infinitely inside SingleChildScrollView
+              height: 450,
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildJobTabContent(activeJobs, emptyMessage: 'No active jobs.\nCreate a job order on the right.'),
+                  _buildJobTabContent(scheduledJobs, emptyMessage: 'No scheduled jobs yet.\nOptimize a job to see it here.'),
+                ],
+              ),
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildJobTabContent(List<Map<String, dynamic>> jobs, {required String emptyMessage}) {
+    if (jobs.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(48),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.inventory_2_outlined, size: 48,
+                  color: AppColors.textSecondary.withOpacity(0.3)),
+              const SizedBox(height: 16),
+              Text(
+                emptyMessage,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.textSecondary.withOpacity(0.7),
+                  fontStyle: FontStyle.italic, fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const ClampingScrollPhysics(),
+      itemCount: jobs.length,
+      separatorBuilder: (_, __) =>
+          Divider(height: 1, color: AppColors.surfaceLight.withOpacity(0.3)),
+      itemBuilder: (_, i) => _buildJobTile(jobs[i]),
     );
   }
 
@@ -257,6 +365,7 @@ class _JobsScreenState extends State<JobsScreen> {
     final isExpanded = _expanded.contains(jobId);
     final tasks = (job['tasks'] as List?) ?? [];
     final isOptimizing = _optimizing[jobId] == true;
+    final isPublishing = _publishing[jobId] == true;
 
     final status = job['status']?.toString() ?? 'DRAFT';
     final deadline = _formatDeadline(job['deadline']);
@@ -344,7 +453,7 @@ class _JobsScreenState extends State<JobsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Tasks header
+                // Tasks header + action buttons
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -357,63 +466,111 @@ class _JobsScreenState extends State<JobsScreen> {
                         letterSpacing: 0.5,
                       ),
                     ),
-                    // Optimize button — disabled for COMPLETED jobs
-                    Builder(builder: (ctx) {
-                      final isCompleted = status == 'COMPLETED';
-                      final canOptimize = !isOptimizing && !isCompleted;
-                      return Container(
-                        decoration: BoxDecoration(
-                          gradient: canOptimize ? AppColors.primaryGradient : null,
-                          color: canOptimize ? null : AppColors.surfaceLight.withOpacity(0.3),
-                          borderRadius: BorderRadius.circular(8),
-                          boxShadow: canOptimize ? [
-                            BoxShadow(
-                              color: AppColors.primary.withOpacity(0.3),
-                              blurRadius: 8, offset: const Offset(0, 4),
-                            ),
-                          ] : null,
-                        ),
-                        child: Tooltip(
-                          message: isCompleted
-                              ? 'Job is already completed'
-                              : tasks.isEmpty
-                                  ? 'Add tasks before optimizing'
-                                  : 'Run CP-SAT optimizer',
-                          child: ElevatedButton.icon(
-                            onPressed: canOptimize ? () => _optimizeJob(jobId, tasks) : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              shadowColor: Colors.transparent,
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            icon: isOptimizing
-                                ? const SizedBox(
-                                    width: 14, height: 14,
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white, strokeWidth: 2,
-                                    ),
-                                  )
-                                : Icon(
-                                    isCompleted ? Icons.check_circle_outline : Icons.auto_fix_high,
-                                    color: canOptimize ? Colors.white : AppColors.textSecondary,
-                                    size: 16,
+                    Row(
+                      children: [
+                        // ── Publish button — only for DRAFT jobs ──
+                        if (status == 'DRAFT') ...
+                          [
+                            Tooltip(
+                              message: tasks.isEmpty
+                                  ? 'Add tasks before publishing'
+                                  : 'Publish to mobile Job Market',
+                              child: OutlinedButton.icon(
+                                onPressed: (isPublishing || tasks.isEmpty)
+                                    ? null
+                                    : () => _publishJob(jobId),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.secondary,
+                                  side: BorderSide(
+                                    color: tasks.isEmpty
+                                        ? AppColors.surfaceLight
+                                        : AppColors.secondary.withOpacity(0.7),
                                   ),
-                            label: Text(
-                              isOptimizing ? 'Optimizing…' : isCompleted ? 'Completed' : 'Optimize',
-                              style: TextStyle(
-                                color: canOptimize ? Colors.white : AppColors.textSecondary,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 10),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                icon: isPublishing
+                                    ? const SizedBox(
+                                        width: 14, height: 14,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: AppColors.secondary,
+                                        ),
+                                      )
+                                    : const Icon(Icons.send_rounded, size: 15),
+                                label: Text(
+                                  isPublishing ? 'Publishing…' : 'Publish',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-                      );
-                    }),
+                            const SizedBox(width: 10),
+                          ],
 
+                        // ── Optimize button — disabled for COMPLETED jobs ──
+                        Builder(builder: (ctx) {
+                          final isCompleted = status == 'COMPLETED';
+                          final canOptimize = !isOptimizing && !isCompleted;
+                          return Container(
+                            decoration: BoxDecoration(
+                              gradient: canOptimize ? AppColors.primaryGradient : null,
+                              color: canOptimize ? null : AppColors.surfaceLight.withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: canOptimize ? [
+                                BoxShadow(
+                                  color: AppColors.primary.withOpacity(0.3),
+                                  blurRadius: 8, offset: const Offset(0, 4),
+                                ),
+                              ] : null,
+                            ),
+                            child: Tooltip(
+                              message: isCompleted
+                                  ? 'Job is already completed'
+                                  : tasks.isEmpty
+                                      ? 'Add tasks before optimizing'
+                                      : 'Run CP-SAT optimizer',
+                              child: ElevatedButton.icon(
+                                onPressed: canOptimize ? () => _optimizeJob(jobId, tasks) : null,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  shadowColor: Colors.transparent,
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                icon: isOptimizing
+                                    ? const SizedBox(
+                                        width: 14, height: 14,
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white, strokeWidth: 2,
+                                        ),
+                                      )
+                                    : Icon(
+                                        isCompleted ? Icons.check_circle_outline : Icons.auto_fix_high,
+                                        color: canOptimize ? Colors.white : AppColors.textSecondary,
+                                        size: 16,
+                                      ),
+                                label: Text(
+                                  isOptimizing ? 'Optimizing…' : isCompleted ? 'Completed' : 'Optimize',
+                                  style: TextStyle(
+                                    color: canOptimize ? Colors.white : AppColors.textSecondary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),

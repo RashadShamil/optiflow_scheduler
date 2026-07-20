@@ -36,7 +36,10 @@ class Machine {
   factory Machine.fromJson(Map<String, dynamic> json) {
     final String status = json['status'] ?? 'UNKNOWN';
     final String rawId = json['id']?.toString() ?? '';
-    final String name = json['name']?.toString() ?? 'Unknown Machine';
+    final String name = json['name']?.toString() ?? 'Unknown Resource';
+    // Read the actual type from the database ('MACHINE' or 'HUMAN').
+    // This is critical so the Gantt chart can show the correct badge.
+    final String type = json['type']?.toString() ?? 'MACHINE';
 
     final bool isBusy = status == "ACTIVE";
     // Utilization: 100% if active, 50% if idle, 0% if offline
@@ -46,7 +49,7 @@ class Machine {
       id: rawId,
       name: name,
       status: status,
-      type: "Machine",
+      type: type,
       location: "Workshop Floor",
       utilization: utilization,
       completedJobs: 0,

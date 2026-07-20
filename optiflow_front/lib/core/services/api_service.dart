@@ -35,13 +35,48 @@ class ApiService {
   // ==========================================
   // ORDER SLICE
   // ==========================================
-  Future<void> createJob(Map<String, dynamic> jobData) async {
-    // POST /api/jobs
+  Future<Map<String, dynamic>> createJob(Map<String, dynamic> jobData) async {
+    try {
+      final response = await http.post(
+        Uri.parse("${baseUrl.replaceAll('/api', '')}/create_job"),
+        headers: {"Content-Type": "application/json"},
+        body: json.encode(jobData),
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      } else {
+        throw Exception("Failed to create job: ${response.statusCode}");
+      }
+    } catch (e) {
+      print("Error creating job: $e");
+      return {"status": "error"};
+    }
+  }
+
+  /// Publish a DRAFT job so workers can see it in the mobile Job Market.
+  /// Calls PATCH /api/jobs/{jobId}/publish → sets status to OPEN.
+  Future<Map<String, dynamic>> publishJob(String jobId) async {
+    try {
+      final response = await http.patch(
+        Uri.parse("$baseUrl/jobs/$jobId/publish"),
+        headers: {"Content-Type": "application/json"},
+      );
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      } else {
+        final body = json.decode(response.body);
+        throw Exception(body['detail'] ?? "Failed to publish job");
+      }
+    } catch (e) {
+      print("Error publishing job: $e");
+      rethrow;
+    }
   }
 
   Future<void> createTask(Map<String, dynamic> taskData) async {
     // POST /api/tasks
   }
+
 
   Future<List<Map<String, dynamic>>> fetchOperationTypes() async {
     try {
@@ -83,23 +118,24 @@ class ApiService {
   // ==========================================
   Future<List<Machine>> fetchMachines() async {
     try {
-      // Assuming backend maps /resources to machines
+      // Fetch ALL resources (MACHINE and HUMAN) so that tasks assigned to human
+      // workers also appear as rows on the Gantt chart.
       final response = await http.get(Uri.parse("$baseUrl/resources"));
 
       if (response.statusCode == 200) {
         final dynamic data = json.decode(response.body);
-        List<dynamic> machinesJson = [];
+        List<dynamic> resourcesJson = [];
         if (data is List) {
-          machinesJson = data.where((m) => m['type'] == 'MACHINE').toList();
+          resourcesJson = data; // No type filter — include MACHINE and HUMAN
         } else if (data is Map) {
-          machinesJson = data['resources'] ?? data['machines'] ?? [];
+          resourcesJson = data['resources'] ?? data['machines'] ?? [];
         }
-        return machinesJson.map((json) => Machine.fromJson(json)).toList();
+        return resourcesJson.map((json) => Machine.fromJson(json)).toList();
       } else {
-        throw Exception("Failed to load machines");
+        throw Exception("Failed to load resources");
       }
     } catch (e) {
-      print("Error fetching machines: $e");
+      print("Error fetching resources: $e");
       return [];
     }
   }
@@ -154,15 +190,19 @@ class ApiService {
           final durationMinutes = endTime.difference(startTime).inMinutes;
           final durationHours   = (durationMinutes / 60).ceil().clamp(1, 24);
 
+          // Color: 'High' = blue (machine), 'Medium' = teal (human worker)
+          final resourceType = item['resources']?['type']?.toString() ?? 'MACHINE';
+          final priority = resourceType == 'HUMAN' ? 'Medium' : 'High';
+
           bookings.add(Booking(
             id:           item['id']?.toString() ?? '',
             machineId:    resourceId,
             machineName:  item['resources']?['name']?.toString() ?? 'Unknown Resource',
             jobTitle:     item['jobs']?['title']?.toString() ?? item['name']?.toString() ?? 'Unknown Job',
-            userName:     'System',
+            userName:     item['resources']?['name']?.toString() ?? 'System',
             startTime:    startTime,
             durationHours: durationHours,
-            priority:     'Medium',
+            priority:     priority,
             status:       item['status'] == 'CONFLICT' ? 'CONFLICT' : 'CONFIRMED',
           ));
         }

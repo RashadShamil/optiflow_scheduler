@@ -30,21 +30,26 @@ class _JobMarketScreenState extends State<JobMarketScreen> {
     if (!mounted) return;
     setState(() { _loading = true; _error = null; });
     try {
-      // Fetch ALL jobs from Supabase directly (no status filter).
-      // Seeded jobs are DRAFT — if we filtered for OPEN they'd never appear.
+      // Fetch ALL jobs from Supabase including tasks.
+      // We then filter to only OPEN jobs — those are the ones the manager
+      // has published from the desktop app using the "Publish" button.
       final raw = await SupabaseService.instance.fetchJobsWithTasks();
-      final jobs = raw.map((json) {
-        return JobModel.fromJson({
-          ...json,
-          // Expose task count for the job card
-          'task_count': (json['tasks'] as List?)?.length ?? 0,
-        });
-      }).toList();
+      final jobs = raw
+          .where((json) => json['status'] == 'OPEN')
+          .map((json) {
+            return JobModel.fromJson({
+              ...json,
+              // Expose task count for the job card
+              'task_count': (json['tasks'] as List?)?.length ?? 0,
+            });
+          })
+          .toList();
       if (mounted) setState(() { _jobs = jobs; _loading = false; });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
     }
   }
+
 
   void _openJobSheet(JobModel job) {
     showModalBottomSheet(

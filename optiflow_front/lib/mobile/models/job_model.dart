@@ -9,6 +9,7 @@ class JobModel {
   final String status;
   final DateTime? deadline;
   final String? assignedTo;
+  final int taskCount;
 
   const JobModel({
     required this.id,
@@ -18,6 +19,7 @@ class JobModel {
     required this.status,
     this.deadline,
     this.assignedTo,
+    this.taskCount = 0,
   });
 
   factory JobModel.fromJson(Map<String, dynamic> json) {
@@ -35,6 +37,7 @@ class JobModel {
       status: json['status'] ?? 'OPEN',
       deadline: parsedDeadline,
       assignedTo: json['assigned_to'],
+      taskCount: json['task_count'] as int? ?? 0,
     );
   }
 
@@ -43,4 +46,8 @@ class JobModel {
     if (deadline == null) return 'No deadline';
     return 'Due ${DateFormat('MMM d').format(deadline!)}';
   }
+
+  /// Returns true if this job can be claimed by a worker.
+  bool get isClaimed => status == 'TAKEN' || status == 'IN_PROGRESS' || status == 'COMPLETED';
 }
+

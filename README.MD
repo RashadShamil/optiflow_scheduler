@@ -15,11 +15,12 @@ Moving beyond legacy heuristic/CRUD rule-based systems, OptiFlow V2 utilizes **C
 ## 📖 Table of Contents
 - [System Architecture](#️-system-architecture)
 - [Key Features](#-key-features)
+- [Project Directory Structure](#-project-directory-structure)
 - [The Mathematical Engine](#-the-mathematical-engine)
 - [Database Schema](#-database-schema)
+- [REST API Structure](#-rest-api-structure)
 - [Local Installation & Setup](#️-local-installation--setup)
 - [Agile Methodology](#-agile-methodology)
-- [Team Nexus](#-team-nexus)
 
 ---
 
@@ -50,6 +51,37 @@ A dedicated mobile interface strictly partitioned by Row-Level/Application logic
 
 ---
 
+## 📂 Project Directory Structure
+
+```text
+e22-co2060-OptiFlow/
+├── README.MD                   # Main project documentation
+├── optiflow_back/              # Backend (Python / FastAPI / OR-Tools)
+│   ├── main.py                 # App entrypoint, middleware, & legacy routes
+│   ├── route.py                # CRUD operations & Optimization router
+│   ├── optimizer.py            # Google OR-Tools CP-SAT scheduler algorithm
+│   ├── models.py               # Pydantic input validation models
+│   ├── databse.py              # Supabase PostgreSQL client initializer
+│   ├── booking_manager.py      # Resource booking & conflict check helpers
+│   ├── seed_db.py              # Minimal DB seed script (human resources)
+│   ├── seed_pitch_data.py      # Complete database clear & pitch data seed script
+│   ├── requirements.txt        # Python dependency manifest
+│   └── .env.local              # Local environment secrets (ignored by git)
+└── optiflow_front/             # Frontend (Flutter / Riverpod)
+    ├── lib/
+    │   ├── main.dart           # App entrypoint (initializes Supabase/Theme/Router)
+    │   ├── core/               # Shared models, services, & utilities
+    │   │   ├── services/       # http API service & Supabase Authentication client
+    │   │   └── models/         # App-wide Dart data representations (Job, Task, etc.)
+    │   ├── mobile/             # Worker Telemetry Interface (Mobile screens & widgets)
+    │   └── slices/             # Manager Interface Slices (Admin, Engine, Order)
+    ├── assets/                 # Images, icons, and fonts
+    ├── pubspec.yaml            # Flutter project dependencies
+    └── run_dashboard.bat       # Convenience launch script for Windows target
+```
+
+---
+
 ## 🧠 The Mathematical Engine
 
 The core brain of OptiFlow (`optimizer.py`) is powered by **Google OR-Tools**.
@@ -76,6 +108,26 @@ Hosted on **Supabase** (PostgreSQL), the architecture relies on a normalized 7-t
 
 ---
 
+## 🔌 REST API Structure
+
+The backend application contains two main route layers exposed by FastAPI:
+
+1. **Standard App Routes (`main.py`):**
+   Exposed directly under the root context (no `/api` prefix). These routes handle legacy booking systems and direct job claims:
+   - `POST /book_machine`
+   - `GET /jobs`
+   - `POST /claim_job`
+   - `POST /create_job`
+
+2. **Core Router Endpoints (`route.py`):**
+   Grouped under the `/api` prefix (configured via `app.include_router(router, prefix="/api")`). These handle core capabilities and optimization requests:
+   - `GET|POST|PUT|DELETE /api/operation-types`
+   - `GET|POST|PUT|DELETE /api/resources`
+   - `GET|POST|PUT /api/capabilities`
+   - `POST /api/optimize/{job_id}` — Triggers the CP-SAT solver for a specific job order.
+
+---
+
 ## 🛠️ Local Installation & Setup
 
 ### Prerequisites
@@ -84,21 +136,87 @@ Hosted on **Supabase** (PostgreSQL), the architecture relies on a normalized 7-t
 *   Supabase Project (URL & Anon/Service Keys)
 
 ### Backend (FastAPI) Setup
-```bash
-# 1. Clone the repository
-git clone [YOUR_REPO_URL_HERE]
-cd optiflow/backend
 
-# 2. Create a virtual environment & install dependencies
-python -m venv venv
-source venv/bin/activate  # (On Windows: venv\Scripts\activate)
-pip install -r requirements.txt
+1. **Navigate to the backend directory:**
+   ```bash
+   cd optiflow_back
+   ```
 
-# 3. Environment Variables
-# Create a .env file in the root backend directory:
-SUPABASE_URL="your_supabase_project_url"
-SUPABASE_KEY="your_supabase_service_role_key"
+2. **Create a virtual environment & activate it:**
+   *   **On Windows:**
+       ```bash
+       python -m venv venv
+       .\venv\Scripts\activate
+       ```
+   *   **On macOS/Linux:**
+       ```bash
+       python3 -m venv venv
+       source venv/bin/activate
+       ```
 
-# 4. Run the API server
-uvicorn app.main:app --reload
-# API Documentation will be available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)                  
+3. **Install python dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Environment Variables:**
+   Create a `.env.local` file inside the `optiflow_back/` folder:
+   ```ini
+   SUPABASE_URL="your_supabase_project_url"
+   SUPABASE_KEY="your_supabase_service_role_key"
+   ```
+
+5. **Seed the database (Optional but Recommended):**
+   *   **Minimal Seed:** Check and populate standard team members (HUMAN resources):
+       ```bash
+       python seed_db.py
+       ```
+   *   **Full Reset & Pitch Seed:** Clear existing records and populate a fresh, complete set of demo jobs, tasks, operation types, capabilities, and dependencies:
+       ```bash
+       python seed_pitch_data.py
+       ```
+
+6. **Run the API server:**
+   ```bash
+   uvicorn main:app --reload
+   ```
+   * The live API documentation will be available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+
+---
+
+### Frontend (Flutter) Setup
+
+1. **Navigate to the frontend directory:**
+   ```bash
+   cd optiflow_front
+   ```
+
+2. **Get packages and dependencies:**
+   ```bash
+   flutter pub get
+   ```
+
+3. **Run the application:**
+   *   **Windows Desktop:**
+       Ensure Windows Developer Mode is enabled, then run:
+       ```bash
+       flutter run -d windows
+       ```
+       *(Alternatively, you can double-click or execute the convenience script `./run_dashboard.bat`)*.
+   *   **Web (Chrome):**
+       ```bash
+       flutter run -d chrome
+       ```
+   *   **Mobile / Other Target Devices:**
+       ```bash
+       flutter run
+       ```
+
+---
+
+## 👥 Agile Methodology
+
+The development process of OptiFlow V2 followed rigorous Agile standards, split into critical engineering cycles:
+*   **Sprint Planning & Backlog Grooming:** Translating operational challenges into granular tickets.
+*   **Decoupled Slice Architecture:** Dividing features into discrete backend routers and frontend components (e.g. Admin Capabilities, Engine Optimization, Orders DAG form builders) to allow parallel work streams.
+*   **Frequent Releases & Integration Testing:** Validating API request shapes through rigorous Pydantic contracts and Flutter telemetry logs.
