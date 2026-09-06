@@ -1,0 +1,75 @@
+CORRECTED OPTIFLOW CLEANUP V3
+
+PRESERVED / REBUILT REAL FEATURES
+- Manager creates a print job + complete task DAG before scheduling.
+- Each task explicitly requires MACHINE, HUMAN, or MACHINE + HUMAN together.
+- Capabilities choose compatible resources, processing rate, setup time and cost.
+- Manager explicitly clicks Optimize; other DRAFT jobs are not auto-scheduled.
+- Existing not-started/unlocked scheduled work may move for new urgent jobs.
+- Priority and deadline affect the CP-SAT objective.
+- Shop hours are configurable; work spills into later working days, never overnight.
+- Approved external machine bookings block the optimizer.
+- Editable Gantt shows both machines and humans; tasks requiring both appear twice.
+- Gantt drag/drop can change time and compatible resource and creates a manual lock.
+- Manager can unlock a task so a later optimizer run may rearrange it.
+- Internal human task workflow: SCHEDULED -> OFFERED -> ACCEPTED -> IN_PROGRESS -> COMPLETED.
+- External work marketplace contains individual HUMAN-only tasks only after manager approval.
+- External machine booking is request -> manager APPROVED/REJECTED; no online payment.
+- QR machine scanning is retained.
+- Role-based app: MANAGER / WORKER / EXTERNAL.
+- Desktop and mobile share the same FastAPI API and Supabase data.
+
+CREATED / REPLACED
+.gitignore
+DEVELOPER_GUIDE.md
+optiflow_back/.env.example
+optiflow_back/auth.py
+optiflow_back/database.py
+optiflow_back/main.py
+optiflow_back/models.py
+optiflow_back/optimizer.py
+optiflow_back/routes.py
+optiflow_back/requirements.txt
+optiflow_back/requirements-dev.txt
+optiflow_back/migrations/001_scheduler_v3.sql
+optiflow_back/tests/test_models.py
+optiflow_back/tests/conftest.py
+optiflow_front/pubspec.yaml
+optiflow_front/lib/main.dart
+optiflow_front/lib/core/services/api_service.dart
+optiflow_front/lib/mobile/core/auth_service.dart
+optiflow_front/lib/mobile/models/task_model.dart
+optiflow_front/lib/mobile/models/machine_model.dart
+optiflow_front/lib/mobile/models/work_offer_model.dart
+optiflow_front/lib/mobile/screens/home_screen.dart
+optiflow_front/lib/mobile/screens/main_hub.dart
+optiflow_front/lib/mobile/screens/machine_market_screen.dart
+optiflow_front/lib/mobile/screens/requests_screen.dart
+optiflow_front/lib/mobile/screens/work_market_screen.dart
+optiflow_front/lib/mobile/widgets/task_bottom_sheet.dart
+optiflow_front/lib/mobile/widgets/task_card.dart
+optiflow_front/lib/slices/admin/approvals_screen.dart
+optiflow_front/lib/slices/admin/capabilities_screen.dart
+optiflow_front/lib/slices/admin/machines_screen.dart
+optiflow_front/lib/slices/admin/team_screen.dart
+optiflow_front/lib/slices/engine/jobs_screen.dart
+optiflow_front/lib/slices/engine/schedule_screen.dart
+optiflow_front/lib/slices/engine/dashboard/dashboard_screen.dart
+optiflow_front/lib/slices/engine/dashboard/widgets/sidebar.dart
+optiflow_front/test/task_model_test.dart
+
+DELETED AS REDUNDANT / GENERATED / FAKE
+- tracked .env.local and __pycache__
+- booking_manager.py (booking feature rebuilt cleanly in canonical API)
+- databse.py typo and route.py duplicate route layer
+- destructive/demo seed scripts in production backend
+- direct Flutter Supabase CRUD service
+- duplicate mobile API service
+- duplicate slices/worker implementation
+- old whole-job Job Market (replaced by individual HUMAN-task market)
+- old booking/job/machine core models no longer used
+- fake Settings and fake Analytics screens
+- obsolete dashboard helper widgets not used by cleaned dashboard
+- one-off import/string repair scripts
+- generated Android build report
+- IDE folders and stale Flutter counter test

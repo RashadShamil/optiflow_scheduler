@@ -1,15 +1,13 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:optiflow_scheduler/core/services/api_service.dart';
-import 'package:optiflow_scheduler/core/services/supabase_service.dart';
 import 'package:optiflow_scheduler/core/utils/app_colors.dart';
-import 'package:optiflow_scheduler/slices/engine/dashboard/widgets/new_job_order.dart';
 
-/// Jobs screen — two-pane layout:
-///   Left: Existing jobs split into Draft/Open tab and Scheduled tab
-///   Right: New Job Order form
+/// Manager job/DAG workspace.
+///
+/// A job is created first. Nothing is scheduled until the manager explicitly
+/// presses Optimize. Each task states whether it needs a machine, a human, or
+/// both; the capability matrix decides the actual resources.
 class JobsScreen extends StatefulWidget {
   const JobsScreen({super.key});
 
@@ -17,680 +15,834 @@ class JobsScreen extends StatefulWidget {
   State<JobsScreen> createState() => _JobsScreenState();
 }
 
-class _JobsScreenState extends State<JobsScreen> with SingleTickerProviderStateMixin {
+class _JobsScreenState extends State<JobsScreen> {
   List<Map<String, dynamic>> _jobs = [];
-  bool _isLoading = true;
+  bool _loading = true;
   final Set<String> _expanded = {};
-  final Map<String, bool> _optimizing = {};
-  final Map<String, bool> _publishing = {};
-  late final TabController _tabController;
-
-  // Statuses that represent "active" (not yet scheduled/done)
-  static const _activeStatuses  = {'DRAFT', 'OPEN', 'TAKEN', 'IN_PROGRESS'};
-  // Statuses that represent "scheduled/done"
-  static const _scheduledStatuses = {'SCHEDULED', 'COMPLETED'};
+  final Set<String> _busy = {};
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _fetchJobs();
+    _loadJobs();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _fetchJobs() async {
-    setState(() => _isLoading = true);
-    final jobs = await SupabaseService.instance.fetchJobsWithTasks();
-    if (mounted) setState(() { _jobs = jobs; _isLoading = false; });
-  }
-
-  Future<void> _optimizeJob(String jobId, List tasks) async {
-    // Guard: cannot optimize a job with no tasks
-    if (tasks.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Add at least one task before optimizing.'),
-          backgroundColor: AppColors.warning,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    setState(() => _optimizing[jobId] = true);
+  Future<void> _loadJobs() async {
+    setState(() => _loading = true);
     try {
-      final resp = await http.post(
-        Uri.parse('${ApiService.baseUrl}/optimize/$jobId'),
-      );
-      if (!mounted) return;
-
-      if (resp.statusCode == 200) {
-        // Parse the rich response to show quality + makespan
-        Map<String, dynamic> body = {};
-        try { body = json.decode(resp.body) as Map<String, dynamic>; } catch (_) {}
-        final quality  = body['quality']?.toString() ?? 'optimal';
-        final makespan = body['makespan_minutes'];
-        final skipped  = body['skipped_tasks'] as int? ?? 0;
-
-        String msg = '✅ Schedule ${quality == 'optimal' ? 'optimally' : 'feasibly'} computed';
-        if (makespan != null) msg += ' — makespan: ${makespan} min';
-        if (skipped > 0)      msg += ' ($skipped task(s) skipped)';
-        msg += '  ·  See the "Scheduled" tab ↓';
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(msg),
-            backgroundColor: quality == 'optimal' ? AppColors.success : AppColors.warning,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-        await _fetchJobs();
-        // Auto-switch to the Scheduled tab so the user sees the result
-        _tabController.animateTo(1);
-      } else {
-        // Show the exact error detail from the backend, not just the status code
-        String detail = 'Optimization failed (${resp.statusCode})';
-        try {
-          final body = json.decode(resp.body) as Map<String, dynamic>;
-          detail = body['detail']?.toString() ?? detail;
-        } catch (_) {}
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(detail),
-            backgroundColor: AppColors.error,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 6),
-          ),
-        );
-      }
-    } catch (e) {
+      final jobs = await ApiService.instance.fetchJobsWithTasks();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Backend offline — start FastAPI to optimize.'),
-            backgroundColor: AppColors.warning,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        setState(() {
+          _jobs = jobs;
+          _loading = false;
+        });
       }
-    } finally {
-      if (mounted) setState(() => _optimizing[jobId] = false);
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-
-  Future<void> _publishJob(String jobId) async {
-    setState(() => _publishing[jobId] = true);
+  Future<void> _optimize(String jobId) async {
+    setState(() => _busy.add(jobId));
     try {
-      await ApiService().publishJob(jobId);
+      final result = await ApiService.instance.optimizeJob(jobId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            '✅ Job published! Workers can now see it in the Job Market.'
+            'Schedule ${result['quality']} · ${result['scheduled_tasks']} movable tasks · ${result['shop_hours']}',
           ),
-          backgroundColor: AppColors.success,
-          behavior: SnackBarBehavior.floating,
         ),
       );
-      _fetchJobs(); // Refresh the list so status updates
+      await _loadJobs();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to publish: $e'),
-            backgroundColor: AppColors.error,
-            behavior: SnackBarBehavior.floating,
-          ),
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
         );
       }
     } finally {
-      if (mounted) setState(() => _publishing[jobId] = false);
+      if (mounted) setState(() => _busy.remove(jobId));
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final activeJobs    = _jobs.where((j) => _activeStatuses.contains(j['status']?.toString())).toList();
-    final scheduledJobs = _jobs.where((j) => _scheduledStatuses.contains(j['status']?.toString())).toList();
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildHeader(),
-          const SizedBox(height: 32),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              // Two-pane on wide screens, single column on narrow
-              if (constraints.maxWidth > 1000) {
-                return IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(flex: 5, child: _buildJobsList(activeJobs, scheduledJobs)),
-                      const SizedBox(width: 32),
-                      Expanded(
-                        flex: 6,
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 700),
-                          child: NewJobOrder(onJobCreated: _fetchJobs),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }
-              return Column(
-                children: [
-                  _buildJobsList(activeJobs, scheduledJobs),
-                  const SizedBox(height: 32),
-                  NewJobOrder(onJobCreated: _fetchJobs),
-                ],
-              );
-            },
-          ),
-        ],
-      ),
-    );
+  Future<void> _dispatch(Map<String, dynamic> task) async {
+    try {
+      await ApiService.instance.dispatchTask(task['id'].toString());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Task sent to worker mobile app.')),
+        );
+      }
+      await _loadJobs();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    }
   }
 
-  Widget _buildHeader() {
-    return const Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          "Jobs",
-          style: TextStyle(
-            fontSize: 36, fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary, letterSpacing: -1,
-          ),
-        ),
-        SizedBox(height: 8),
-        Text(
-          "Create job orders and publish them to the mobile Job Market for workers to claim.",
-          style: TextStyle(fontSize: 16, color: AppColors.textSecondary),
-        ),
-      ],
+  Future<void> _publishExternal(Map<String, dynamic> task) async {
+    final pay = TextEditingController();
+    final minutes = TextEditingController(
+      text: task['processing_time_minutes']?.toString() ?? '60',
     );
-  }
+    final notes = TextEditingController();
 
-  Widget _buildJobsList(List<Map<String, dynamic>> activeJobs, List<Map<String, dynamic>> scheduledJobs) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.surfaceLight.withOpacity(0.4)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header bar with tab selector
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  "Jobs",
-                  style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.refresh_rounded, color: AppColors.primary),
-                  tooltip: 'Refresh',
-                  onPressed: _fetchJobs,
-                ),
-              ],
-            ),
-          ),
-          // Tab bar
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TabBar(
-              controller: _tabController,
-              indicatorColor: AppColors.primary,
-              labelColor: AppColors.primary,
-              unselectedLabelColor: AppColors.textSecondary,
-              labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-              tabs: [
-                Tab(text: 'Active (${activeJobs.length})'),
-                Tab(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Scheduled'),
-                      if (scheduledJobs.isNotEmpty) ...
-                        [
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppColors.success.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              '${scheduledJobs.length}',
-                              style: const TextStyle(
-                                color: AppColors.success,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Divider(height: 1, color: AppColors.surfaceLight.withOpacity(0.5)),
-
-          if (_isLoading)
-            const Padding(
-              padding: EdgeInsets.all(48),
-              child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
-            )
-          else
-            SizedBox(
-              // Fixed height so it doesn't expand infinitely inside SingleChildScrollView
-              height: 450,
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildJobTabContent(activeJobs, emptyMessage: 'No active jobs.\nCreate a job order on the right.'),
-                  _buildJobTabContent(scheduledJobs, emptyMessage: 'No scheduled jobs yet.\nOptimize a job to see it here.'),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildJobTabContent(List<Map<String, dynamic>> jobs, {required String emptyMessage}) {
-    if (jobs.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.all(48),
-        child: Center(
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Publish External Human Task'),
+        content: SizedBox(
+          width: 420,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.inventory_2_outlined, size: 48,
-                  color: AppColors.textSecondary.withOpacity(0.3)),
-              const SizedBox(height: 16),
               Text(
-                emptyMessage,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppColors.textSecondary.withOpacity(0.7),
-                  fontStyle: FontStyle.italic, fontSize: 15,
+                'This publishes only "${task['name']}" — not the entire print job.',
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: pay,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(labelText: 'Payment (Rs.)'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: minutes,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Estimated minutes',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: notes,
+                decoration: const InputDecoration(
+                  labelText: 'Notes (optional)',
                 ),
               ),
             ],
           ),
         ),
-      );
-    }
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const ClampingScrollPhysics(),
-      itemCount: jobs.length,
-      separatorBuilder: (_, __) =>
-          Divider(height: 1, color: AppColors.surfaceLight.withOpacity(0.3)),
-      itemBuilder: (_, i) => _buildJobTile(jobs[i]),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Approve & Publish'),
+          ),
+        ],
+      ),
     );
+
+    if (confirmed != true) return;
+    final amount = double.tryParse(pay.text);
+    final estimate = int.tryParse(minutes.text);
+    if (amount == null || amount <= 0 || estimate == null || estimate <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Enter a valid payment and estimated time.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      await ApiService.instance.publishWorkOffer(
+        taskId: task['id'].toString(),
+        payAmount: amount,
+        estimatedMinutes: estimate,
+        notes: notes.text.trim().isEmpty ? null : notes.text.trim(),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Human task published to external workers.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    }
   }
 
-  Widget _buildJobTile(Map<String, dynamic> job) {
-    final jobId = job['id']?.toString() ?? '';
-    final isExpanded = _expanded.contains(jobId);
-    final tasks = (job['tasks'] as List?) ?? [];
-    final isOptimizing = _optimizing[jobId] == true;
-    final isPublishing = _publishing[jobId] == true;
-
-    final status = job['status']?.toString() ?? 'DRAFT';
-    final deadline = _formatDeadline(job['deadline']);
-
-    return Column(
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(32),
       children: [
-        InkWell(
-          onTap: () {
-            setState(() {
-              if (isExpanded) _expanded.remove(jobId);
-              else _expanded.add(jobId);
-            });
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            child: Row(
-              children: [
-                // Status dot
-                Container(
-                  width: 10, height: 10,
-                  margin: const EdgeInsets.only(right: 16),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _statusColor(status),
-                  ),
-                ),
-                // Title & client
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        job['title']?.toString() ?? 'Untitled',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textPrimary,
-                          fontSize: 15,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '${job['client_name'] ?? 'Unknown'} · ${_formatQty(job['total_quantity'])} units',
-                        style: const TextStyle(
-                          fontSize: 13, color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Deadline
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    _statusBadge(status),
-                    const SizedBox(height: 4),
-                    Text(
-                      deadline,
-                      style: const TextStyle(
-                        fontSize: 12, color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(width: 16),
-                // Expand chevron
-                Icon(
-                  isExpanded ? Icons.expand_less : Icons.expand_more,
-                  color: AppColors.textSecondary,
-                ),
-              ],
-            ),
-          ),
+        const Text(
+          'Jobs',
+          style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900),
         ),
-
-        // Expanded task list + optimize button
-        if (isExpanded)
-          Container(
-            margin: const EdgeInsets.fromLTRB(24, 0, 24, 16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceLight.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.surfaceLight.withOpacity(0.4)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        const SizedBox(height: 6),
+        const Text(
+          'Create the process DAG first. Optimize only when you want the scheduler to place it.',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        const SizedBox(height: 24),
+        LayoutBuilder(
+          builder: (_, constraints) {
+            if (constraints.maxWidth >= 1100) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _jobList()),
+                  const SizedBox(width: 24),
+                  Expanded(child: _NewJobForm(onCreated: _loadJobs)),
+                ],
+              );
+            }
+            return Column(
               children: [
-                // Tasks header + action buttons
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Tasks (${tasks.length})',
-                      style: const TextStyle(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        // ── Publish button — only for DRAFT jobs ──
-                        if (status == 'DRAFT') ...
-                          [
-                            Tooltip(
-                              message: tasks.isEmpty
-                                  ? 'Add tasks before publishing'
-                                  : 'Publish to mobile Job Market',
-                              child: OutlinedButton.icon(
-                                onPressed: (isPublishing || tasks.isEmpty)
-                                    ? null
-                                    : () => _publishJob(jobId),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: AppColors.secondary,
-                                  side: BorderSide(
-                                    color: tasks.isEmpty
-                                        ? AppColors.surfaceLight
-                                        : AppColors.secondary.withOpacity(0.7),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 14, vertical: 10),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
-                                icon: isPublishing
-                                    ? const SizedBox(
-                                        width: 14, height: 14,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: AppColors.secondary,
-                                        ),
-                                      )
-                                    : const Icon(Icons.send_rounded, size: 15),
-                                label: Text(
-                                  isPublishing ? 'Publishing…' : 'Publish',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                          ],
-
-                        // ── Optimize button — disabled for COMPLETED jobs ──
-                        Builder(builder: (ctx) {
-                          final isCompleted = status == 'COMPLETED';
-                          final canOptimize = !isOptimizing && !isCompleted;
-                          return Container(
-                            decoration: BoxDecoration(
-                              gradient: canOptimize ? AppColors.primaryGradient : null,
-                              color: canOptimize ? null : AppColors.surfaceLight.withOpacity(0.3),
-                              borderRadius: BorderRadius.circular(8),
-                              boxShadow: canOptimize ? [
-                                BoxShadow(
-                                  color: AppColors.primary.withOpacity(0.3),
-                                  blurRadius: 8, offset: const Offset(0, 4),
-                                ),
-                              ] : null,
-                            ),
-                            child: Tooltip(
-                              message: isCompleted
-                                  ? 'Job is already completed'
-                                  : tasks.isEmpty
-                                      ? 'Add tasks before optimizing'
-                                      : 'Run CP-SAT optimizer',
-                              child: ElevatedButton.icon(
-                                onPressed: canOptimize ? () => _optimizeJob(jobId, tasks) : null,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.transparent,
-                                  shadowColor: Colors.transparent,
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
-                                icon: isOptimizing
-                                    ? const SizedBox(
-                                        width: 14, height: 14,
-                                        child: CircularProgressIndicator(
-                                          color: Colors.white, strokeWidth: 2,
-                                        ),
-                                      )
-                                    : Icon(
-                                        isCompleted ? Icons.check_circle_outline : Icons.auto_fix_high,
-                                        color: canOptimize ? Colors.white : AppColors.textSecondary,
-                                        size: 16,
-                                      ),
-                                label: Text(
-                                  isOptimizing ? 'Optimizing…' : isCompleted ? 'Completed' : 'Optimize',
-                                  style: TextStyle(
-                                    color: canOptimize ? Colors.white : AppColors.textSecondary,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        }),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                if (tasks.isEmpty)
-                  Text(
-                    'No tasks defined for this job.',
-                    style: TextStyle(
-                      color: AppColors.textSecondary.withOpacity(0.6),
-                      fontStyle: FontStyle.italic, fontSize: 13,
-                    ),
-                  )
-                else
-                  ...tasks.map<Widget>((task) => _buildTaskRow(task)),
+                _jobList(),
+                const SizedBox(height: 24),
+                _NewJobForm(onCreated: _loadJobs),
               ],
-            ),
-          ),
+            );
+          },
+        ),
       ],
     );
   }
 
-  Widget _buildTaskRow(Map<String, dynamic> task) {
-    final opTypeName =
-        (task['operation_types'] as Map?)?['name']?.toString() ?? task['operation_type_id']?.toString() ?? '—';
-    final resourceName = (task['resources'] as Map?)?['name']?.toString() ?? 'Unassigned';
-    final taskStatus = task['status']?.toString() ?? 'PENDING';
-    final qty = task['quantity_to_process'];
+  Widget _jobList() {
+    return Card(
+      color: AppColors.surface,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Existing Jobs (${_jobs.length})',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                IconButton(
+                  onPressed: _loadJobs,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            ),
+            const Divider(),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(40),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_jobs.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(32),
+                child: Text('No jobs yet.'),
+              )
+            else
+              ..._jobs.map(_jobTile),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _jobTile(Map<String, dynamic> job) {
+    final id = job['id'].toString();
+    final tasks = (job['tasks'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final expanded = _expanded.contains(id);
+    final busy = _busy.contains(id);
+
+    return Column(
+      children: [
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  job['title']?.toString() ?? 'Untitled',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+              _badge(job['priority']?.toString() ?? 'MEDIUM'),
+            ],
+          ),
+          subtitle: Text(
+            '${job['client_name'] ?? 'Unknown client'} · ${job['status'] ?? 'DRAFT'} · ${tasks.length} tasks',
+          ),
+          trailing: Icon(expanded ? Icons.expand_less : Icons.expand_more),
+          onTap: () => setState(
+            () => expanded ? _expanded.remove(id) : _expanded.add(id),
+          ),
+        ),
+        if (expanded)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceLight.withValues(alpha: 0.25),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              children: [
+                ...tasks.map((task) => _taskRow(task)),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: busy || tasks.isEmpty
+                        ? null
+                        : () => _optimize(id),
+                    icon: busy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.auto_awesome_rounded),
+                    label: Text(
+                      busy ? 'Optimizing...' : 'Optimize / Re-optimize',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        const Divider(height: 1),
+      ],
+    );
+  }
+
+  Widget _taskRow(Map<String, dynamic> task) {
+    final machine = task['machine_required'] == true;
+    final human = task['human_required'] == true;
+    final status = task['status']?.toString() ?? 'PENDING';
+    final humanOnly = human && !machine;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
-          Icon(Icons.subdirectory_arrow_right_rounded,
-              size: 16, color: AppColors.textSecondary.withOpacity(0.5)),
-          const SizedBox(width: 8),
+          const Icon(Icons.chevron_right, size: 16),
+          const SizedBox(width: 6),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  task['name']?.toString() ?? 'Unnamed Task',
-                  style: const TextStyle(
-                    color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w600,
-                  ),
+                  task['name']?.toString() ?? 'Task',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
                 Text(
-                  '$opTypeName · $qty units · $resourceName',
-                  style: TextStyle(
-                    color: AppColors.textSecondary.withOpacity(0.8), fontSize: 12,
+                  '${machine ? 'Machine' : ''}${machine && human ? ' + ' : ''}${human ? 'Human' : ''} · $status${task['schedule_locked'] == true ? ' · LOCKED' : ''}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
                   ),
                 ),
               ],
             ),
           ),
-          _taskStatusBadge(taskStatus),
+          if (humanOnly)
+            IconButton(
+              tooltip: 'Publish to external workers',
+              onPressed: () => _publishExternal(task),
+              icon: const Icon(Icons.public_rounded, size: 20),
+            ),
+          if (task['assigned_human_id'] != null && status == 'SCHEDULED')
+            IconButton(
+              tooltip: 'Send to worker mobile app',
+              onPressed: () => _dispatch(task),
+              icon: const Icon(Icons.send_to_mobile_rounded, size: 20),
+            ),
         ],
       ),
     );
   }
 
-  Widget _statusBadge(String status) {
-    final color = _statusColor(status);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.3)),
+  Widget _badge(String text) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: AppColors.primary.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(
+      text,
+      style: const TextStyle(
+        fontSize: 10,
+        fontWeight: FontWeight.w900,
+        color: AppColors.primary,
       ),
-      child: Text(
-        status,
-        style: TextStyle(
-          color: color, fontSize: 11, fontWeight: FontWeight.bold,
+    ),
+  );
+}
+
+class _TaskDraft {
+  final name = TextEditingController();
+  final quantity = TextEditingController();
+  final processingMinutes = TextEditingController();
+  String? operationId;
+  bool machineRequired = false;
+  bool humanRequired = false;
+  final Set<int> dependencies = {};
+
+  void dispose() {
+    name.dispose();
+    quantity.dispose();
+    processingMinutes.dispose();
+  }
+}
+
+class _NewJobForm extends StatefulWidget {
+  final VoidCallback onCreated;
+
+  const _NewJobForm({required this.onCreated});
+
+  @override
+  State<_NewJobForm> createState() => _NewJobFormState();
+}
+
+class _NewJobFormState extends State<_NewJobForm> {
+  final _title = TextEditingController();
+  final _client = TextEditingController();
+  final _quantity = TextEditingController();
+  final List<_TaskDraft> _tasks = [];
+  List<Map<String, dynamic>> _operations = [];
+  DateTime? _deadline;
+  String _priority = 'MEDIUM';
+  bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOperations();
+  }
+
+  Future<void> _loadOperations() async {
+    try {
+      final operations = await ApiService.instance.fetchOperationTypes();
+      if (mounted) setState(() => _operations = operations);
+    } catch (_) {}
+  }
+
+  void _addTask() {
+    final task = _TaskDraft();
+    if (_operations.isNotEmpty) {
+      task.operationId = _operations.first['id'].toString();
+    }
+    setState(() => _tasks.add(task));
+  }
+
+  void _removeTask(int index) {
+    final removed = _tasks.removeAt(index);
+    removed.dispose();
+    for (final task in _tasks) {
+      task.dependencies.remove(index);
+      final shifted = task.dependencies
+          .where((value) => value > index)
+          .toList();
+      for (final value in shifted) {
+        task.dependencies.remove(value);
+        task.dependencies.add(value - 1);
+      }
+    }
+    setState(() {});
+  }
+
+  Future<void> _chooseDeadline() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _deadline ?? DateTime.now().add(const Duration(days: 1)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 3650)),
+    );
+    if (date == null || !mounted) return;
+    final selectedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(
+        _deadline ?? DateTime(date.year, date.month, date.day, 17),
+      ),
+    );
+    if (selectedTime == null) return;
+    setState(
+      () => _deadline = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        selectedTime.hour,
+        selectedTime.minute,
+      ),
+    );
+  }
+
+  Future<void> _chooseDependencies(int taskIndex) async {
+    if (taskIndex == 0) return;
+    final selected = Set<int>.from(_tasks[taskIndex].dependencies);
+    final result = await showDialog<Set<int>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Task dependencies'),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(taskIndex, (index) {
+                final label = _tasks[index].name.text.trim().isEmpty
+                    ? 'Task ${index + 1}'
+                    : _tasks[index].name.text.trim();
+                return CheckboxListTile(
+                  value: selected.contains(index),
+                  title: Text(label),
+                  onChanged: (checked) => setDialogState(() {
+                    if (checked == true) {
+                      selected.add(index);
+                    } else {
+                      selected.remove(index);
+                    }
+                  }),
+                );
+              }),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, selected),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (result != null) {
+      setState(
+        () => _tasks[taskIndex].dependencies
+          ..clear()
+          ..addAll(result),
+      );
+    }
+  }
+
+  Future<void> _submit() async {
+    final totalQuantity = int.tryParse(_quantity.text);
+    if (_title.text.trim().isEmpty ||
+        totalQuantity == null ||
+        totalQuantity <= 0 ||
+        _deadline == null ||
+        _tasks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Enter title, quantity, deadline and at least one task.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    for (var i = 0; i < _tasks.length; i++) {
+      final task = _tasks[i];
+      final quantity = int.tryParse(task.quantity.text);
+      if (task.name.text.trim().isEmpty ||
+          task.operationId == null ||
+          quantity == null ||
+          quantity <= 0) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Complete Task ${i + 1}.')));
+        return;
+      }
+      if (!task.machineRequired && !task.humanRequired) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Choose Machine, Human, or both for Task ${i + 1}.'),
+          ),
+        );
+        return;
+      }
+    }
+
+    final dependencies = <Map<String, dynamic>>[];
+    for (var successor = 0; successor < _tasks.length; successor++) {
+      for (final predecessor in _tasks[successor].dependencies) {
+        dependencies.add({
+          'predecessor_index': predecessor,
+          'successor_index': successor,
+          'mandatory_wait_minutes': 0,
+        });
+      }
+    }
+
+    setState(() => _submitting = true);
+    try {
+      await ApiService.instance.createJobOrder({
+        'title': _title.text.trim(),
+        'client_name': _client.text.trim().isEmpty ? null : _client.text.trim(),
+        'total_quantity': totalQuantity,
+        'priority': _priority,
+        'deadline': _deadline!.toUtc().toIso8601String(),
+        'tasks': _tasks
+            .map(
+              (task) => {
+                'name': task.name.text.trim(),
+                'operation_type_id': task.operationId,
+                'quantity_to_process': int.parse(task.quantity.text),
+                'processing_time_minutes': int.tryParse(
+                  task.processingMinutes.text,
+                ),
+                'machine_required': task.machineRequired,
+                'human_required': task.humanRequired,
+              },
+            )
+            .toList(),
+        'dependencies': dependencies,
+      });
+
+      _title.clear();
+      _client.clear();
+      _quantity.clear();
+      for (final task in _tasks) {
+        task.dispose();
+      }
+      setState(() {
+        _tasks.clear();
+        _deadline = null;
+        _priority = 'MEDIUM';
+      });
+      widget.onCreated();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _client.dispose();
+    _quantity.dispose();
+    for (final task in _tasks) {
+      task.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: AppColors.surface,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'New Job',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _title,
+              decoration: const InputDecoration(labelText: 'Job title'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _client,
+              decoration: const InputDecoration(labelText: 'Client'),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _quantity,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Total quantity',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _priority,
+                    decoration: const InputDecoration(labelText: 'Priority'),
+                    items: const ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) setState(() => _priority = value);
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _chooseDeadline,
+              icon: const Icon(Icons.calendar_today_outlined),
+              label: Text(
+                _deadline == null
+                    ? 'Choose deadline'
+                    : DateFormat('MMM d, yyyy · h:mm a').format(_deadline!),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Process DAG',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                TextButton.icon(
+                  onPressed: _operations.isEmpty ? null : _addTask,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add Task'),
+                ),
+              ],
+            ),
+            ...List.generate(_tasks.length, _taskEditor),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _submitting ? null : _submit,
+                child: _submitting
+                    ? const CircularProgressIndicator()
+                    : const Text('Create Job (Do Not Optimize Yet)'),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _taskStatusBadge(String status) {
-    Color color;
-    switch (status) {
-      case 'COMPLETED':   color = AppColors.success; break;
-      case 'IN_PROGRESS': color = AppColors.info; break;
-      case 'SCHEDULED':   color = AppColors.secondary; break;
-      default:            color = AppColors.textSecondary;
-    }
+  Widget _taskEditor(int index) {
+    final task = _tasks[index];
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(6),
+        color: AppColors.surfaceLight.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(10),
       ),
-      child: Text(
-        status,
-        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Task ${index + 1}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              IconButton(
+                onPressed: () => _removeTask(index),
+                icon: const Icon(Icons.close, size: 18),
+              ),
+            ],
+          ),
+          TextField(
+            controller: task.name,
+            decoration: const InputDecoration(labelText: 'Task name'),
+          ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            initialValue: task.operationId,
+            decoration: const InputDecoration(labelText: 'Operation type'),
+            items: _operations
+                .map(
+                  (operation) => DropdownMenuItem(
+                    value: operation['id'].toString(),
+                    child: Text(operation['name'].toString()),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) => setState(() => task.operationId = value),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: task.quantity,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Quantity'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: task.processingMinutes,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Manual duration min (optional)',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: task.machineRequired,
+            title: const Text('Requires machine'),
+            onChanged: (value) =>
+                setState(() => task.machineRequired = value ?? false),
+          ),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: task.humanRequired,
+            title: const Text('Requires human worker'),
+            onChanged: (value) =>
+                setState(() => task.humanRequired = value ?? false),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: index == 0 ? null : () => _chooseDependencies(index),
+              icon: const Icon(Icons.account_tree_outlined),
+              label: Text(
+                task.dependencies.isEmpty
+                    ? 'No predecessors'
+                    : '${task.dependencies.length} predecessors',
+              ),
+            ),
+          ),
+        ],
       ),
     );
-  }
-
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'COMPLETED':   return AppColors.success;
-      case 'IN_PROGRESS':
-      case 'SCHEDULED':   return AppColors.info;
-      case 'OPEN':        return AppColors.secondary;
-      default:            return AppColors.textSecondary; // DRAFT
-    }
-  }
-
-  String _formatDeadline(dynamic raw) {
-    if (raw == null) return 'No deadline';
-    try {
-      final dt = DateTime.parse(raw.toString()).toLocal();
-      return 'Due ${DateFormat('MMM d, yyyy').format(dt)}';
-    } catch (_) { return 'No deadline'; }
-  }
-
-  String _formatQty(dynamic qty) {
-    if (qty == null) return '0';
-    final n = int.tryParse(qty.toString()) ?? 0;
-    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}k';
-    return n.toString();
   }
 }

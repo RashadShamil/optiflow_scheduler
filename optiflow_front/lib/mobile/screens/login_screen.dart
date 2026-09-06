@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:optiflow_scheduler/main.dart';
 import '../core/app_theme.dart';
 import '../core/auth_service.dart';
-import 'main_hub.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────────
 /// LoginScreen — premium Airbnb-style sign-in
@@ -19,16 +19,16 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   final _emailCtrl = TextEditingController();
-  final _passCtrl  = TextEditingController();
-  final _formKey   = GlobalKey<FormState>();
+  final _passCtrl = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
 
-  bool _loading    = false;
-  bool _obscure    = true;
+  bool _loading = false;
+  bool _obscure = true;
   String? _error;
 
   late AnimationController _animCtrl;
-  late Animation<double>   _fadeAnim;
-  late Animation<Offset>   _slideAnim;
+  late Animation<double> _fadeAnim;
+  late Animation<Offset> _slideAnim;
 
   @override
   void initState() {
@@ -37,7 +37,7 @@ class _LoginScreenState extends State<LoginScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
-    _fadeAnim  = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
+    _fadeAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
     _slideAnim = Tween<Offset>(
       begin: const Offset(0, 0.08),
       end: Offset.zero,
@@ -56,7 +56,10 @@ class _LoginScreenState extends State<LoginScreen>
   Future<void> _handleSignIn() async {
     if (!_formKey.currentState!.validate()) return;
     HapticFeedback.lightImpact();
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
 
     try {
       await AuthService.instance.signIn(
@@ -66,11 +69,9 @@ class _LoginScreenState extends State<LoginScreen>
       if (mounted) {
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
-            pageBuilder: (_, a1, a2) => const MainHub(),
-            transitionsBuilder: (_, anim, __, child) => FadeTransition(
-              opacity: anim,
-              child: child,
-            ),
+            pageBuilder: (_, a1, a2) => getAuthenticatedHome(),
+            transitionsBuilder: (_, anim, __, child) =>
+                FadeTransition(opacity: anim, child: child),
             transitionDuration: const Duration(milliseconds: 400),
           ),
         );
@@ -92,7 +93,9 @@ class _LoginScreenState extends State<LoginScreen>
         children: [
           // ── Gradient top decoration — purple → dusty rose, matching logo + desktop ──
           Positioned(
-            top: 0, left: 0, right: 0,
+            top: 0,
+            left: 0,
+            right: 0,
             child: Container(
               height: MediaQuery.of(context).size.height * 0.42,
               decoration: const BoxDecoration(
@@ -108,9 +111,11 @@ class _LoginScreenState extends State<LoginScreen>
 
           // ── Decorative circles ─────────────────────────────────────────────
           Positioned(
-            top: -40, right: -40,
+            top: -40,
+            right: -40,
             child: Container(
-              width: 200, height: 200,
+              width: 200,
+              height: 200,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.white.withOpacity(0.07),
@@ -118,9 +123,11 @@ class _LoginScreenState extends State<LoginScreen>
             ),
           ),
           Positioned(
-            top: 60, right: 40,
+            top: 60,
+            right: 40,
             child: Container(
-              width: 80, height: 80,
+              width: 80,
+              height: 80,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.white.withOpacity(0.10),
@@ -148,7 +155,8 @@ class _LoginScreenState extends State<LoginScreen>
                           children: [
                             // Logo — actual logo.png asset
                             Container(
-                              width: 64, height: 64,
+                              width: 64,
+                              height: 64,
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(18),
@@ -237,10 +245,9 @@ class _LoginScreenState extends State<LoginScreen>
                               label: 'Email address',
                               icon: Icons.alternate_email_rounded,
                               keyboardType: TextInputType.emailAddress,
-                              validator: (v) =>
-                                  (v == null || !v.contains('@'))
-                                      ? 'Enter a valid email'
-                                      : null,
+                              validator: (v) => (v == null || !v.contains('@'))
+                                  ? 'Enter a valid email'
+                                  : null,
                             ),
                             const SizedBox(height: 16),
 
@@ -250,10 +257,9 @@ class _LoginScreenState extends State<LoginScreen>
                               label: 'Password',
                               icon: Icons.lock_outline_rounded,
                               obscureText: _obscure,
-                              validator: (v) =>
-                                  (v == null || v.length < 6)
-                                      ? 'Min. 6 characters'
-                                      : null,
+                              validator: (v) => (v == null || v.length < 6)
+                                  ? 'Min. 6 characters'
+                                  : null,
                               suffix: IconButton(
                                 icon: Icon(
                                   _obscure
@@ -272,7 +278,9 @@ class _LoginScreenState extends State<LoginScreen>
                               const SizedBox(height: 16),
                               Container(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 12),
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
                                 decoration: BoxDecoration(
                                   color: AppColors.offline.withOpacity(0.08),
                                   borderRadius: BorderRadius.circular(12),
@@ -310,7 +318,8 @@ class _LoginScreenState extends State<LoginScreen>
                                 style: AppTheme.pillButtonStyle(),
                                 child: _loading
                                     ? const SizedBox(
-                                        width: 22, height: 22,
+                                        width: 22,
+                                        height: 22,
                                         child: CircularProgressIndicator(
                                           color: Colors.white,
                                           strokeWidth: 2.5,
@@ -356,13 +365,17 @@ class _LoginScreenState extends State<LoginScreen>
       decoration: InputDecoration(
         labelText: label,
         labelStyle: GoogleFonts.inter(
-            color: AppColors.textSecondary, fontSize: 14),
+          color: AppColors.textSecondary,
+          fontSize: 14,
+        ),
         prefixIcon: Icon(icon, color: AppColors.textDisabled, size: 20),
         suffixIcon: suffix,
         filled: true,
         fillColor: const Color(0xFFF7F7F9),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 18,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
           borderSide: BorderSide.none,

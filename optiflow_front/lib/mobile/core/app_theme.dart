@@ -9,16 +9,24 @@ class AppColors {
   AppColors._();
 
   // ── Surfaces ────────────────────────────────────────────────────────────────
-  static const Color background   = Color(0xFFF5F4FA); // Soft lavender-tinted white
-  static const Color cardSurface  = Color(0xFFFFFFFF); // Floating card
-  static const Color bottomSheet  = Color(0xFFFFFFFF);
+  static const Color background = Color(
+    0xFFF5F4FA,
+  ); // Soft lavender-tinted white
+  static const Color cardSurface = Color(0xFFFFFFFF); // Floating card
+  static const Color bottomSheet = Color(0xFFFFFFFF);
 
   // ── Brand — muted purple/indigo matching the desktop + logo ─────────────────
   // Desktop uses #8B5CF6 (vibrant violet). We tone it down for mobile:
   // a slightly darker, more desaturated indigo that reads as "professional" not "neon".
-  static const Color primary      = Color(0xFF7C5DBC); // Muted violet (logo purple, toned down)
-  static const Color primaryLight = Color(0xFF9B7FD4); // Lighter tint for hover/accent
-  static const Color primaryDark  = Color(0xFF5B3F99); // Deeper shade for pressed states
+  static const Color primary = Color(
+    0xFF7C5DBC,
+  ); // Muted violet (logo purple, toned down)
+  static const Color primaryLight = Color(
+    0xFF9B7FD4,
+  ); // Lighter tint for hover/accent
+  static const Color primaryDark = Color(
+    0xFF5B3F99,
+  ); // Deeper shade for pressed states
 
   // Gradient matching the logo swirl (purple → dusty rose-pink)
   static const LinearGradient brandGradient = LinearGradient(
@@ -28,15 +36,21 @@ class AppColors {
   );
 
   // ── Text ────────────────────────────────────────────────────────────────────
-  static const Color textPrimary   = Color(0xFF1A1730); // Deep navy (not pure black)
+  static const Color textPrimary = Color(
+    0xFF1A1730,
+  ); // Deep navy (not pure black)
   static const Color textSecondary = Color(0xFF6B6882); // Muted slate-purple
-  static const Color textDisabled  = Color(0xFFB0AEC4); // Light muted purple-grey
+  static const Color textDisabled = Color(
+    0xFFB0AEC4,
+  ); // Light muted purple-grey
 
   // ── Status ──────────────────────────────────────────────────────────────────
-  static const Color scheduled  = Color(0xFFF5A623); // Warm amber
+  static const Color scheduled = Color(0xFFF5A623); // Warm amber
   static const Color inProgress = Color(0xFF5B8DEF); // Softer blue
-  static const Color completed  = Color(0xFF27AE72); // Muted emerald (matches desktop success)
-  static const Color offline    = Color(0xFFE05252); // Muted rose-red
+  static const Color completed = Color(
+    0xFF27AE72,
+  ); // Muted emerald (matches desktop success)
+  static const Color offline = Color(0xFFE05252); // Muted rose-red
 
   // ── Borders / Dividers ──────────────────────────────────────────────────────
   static const Color divider = Color(0xFFE8E6F0); // Soft purple-tinted divider
@@ -45,9 +59,9 @@ class AppColors {
 class AppTheme {
   AppTheme._();
 
-  static const double radiusCard   = 20.0;
-  static const double radiusPill   = 32.0;
-  static const double radiusSmall  = 12.0;
+  static const double radiusCard = 20.0;
+  static const double radiusPill = 32.0;
+  static const double radiusSmall = 12.0;
 
   /// The universal card shadow — blur 20, opacity 0.05 black
   static List<BoxShadow> get cardShadow => [
@@ -68,16 +82,16 @@ class AppTheme {
 
   /// Pill-shaped elevated button style (primary purple — matches desktop + logo)
   static ButtonStyle pillButtonStyle({Color? bg, Color? fg}) =>
-    ElevatedButton.styleFrom(
-      backgroundColor: bg ?? AppColors.primary,
-      foregroundColor: fg ?? Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(radiusPill),
-      ),
-      elevation: 0,
-      minimumSize: const Size(double.infinity, 60),
-      textStyle: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700),
-    );
+      ElevatedButton.styleFrom(
+        backgroundColor: bg ?? AppColors.primary,
+        foregroundColor: fg ?? Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radiusPill),
+        ),
+        elevation: 0,
+        minimumSize: const Size(double.infinity, 60),
+        textStyle: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700),
+      );
 
   /// Soft purple tint decoration used for subtle highlight containers
   static BoxDecoration get primaryTintDecoration => BoxDecoration(
@@ -152,22 +166,33 @@ class StatusBadge extends StatelessWidget {
 
   Color get _color {
     switch (status.toUpperCase()) {
-      case 'SCHEDULED':   return AppColors.scheduled;
-      case 'IN_PROGRESS': return AppColors.inProgress;
-      case 'COMPLETED':   return AppColors.completed;
-      case 'OPEN':        return AppColors.completed;   // green — job is available
-      case 'TAKEN':       return AppColors.scheduled;   // amber — job is claimed
-      case 'OFFLINE':     return AppColors.offline;
-      case 'DRAFT':       return AppColors.textDisabled;
-      default:            return AppColors.textDisabled;
+      case 'SCHEDULED':
+        return AppColors.scheduled;
+      case 'IN_PROGRESS':
+        return AppColors.inProgress;
+      case 'COMPLETED':
+        return AppColors.completed;
+      case 'OPEN':
+        return AppColors.completed; // green — job is available
+      case 'TAKEN':
+        return AppColors.scheduled; // amber — job is claimed
+      case 'OFFLINE':
+        return AppColors.offline;
+      case 'DRAFT':
+        return AppColors.textDisabled;
+      default:
+        return AppColors.textDisabled;
     }
   }
 
   String get _label {
     switch (status.toUpperCase()) {
-      case 'TAKEN':       return 'CLAIMED';
-      case 'IN_PROGRESS': return 'IN PROGRESS';
-      default:            return status.replaceAll('_', ' ');
+      case 'TAKEN':
+        return 'CLAIMED';
+      case 'IN_PROGRESS':
+        return 'IN PROGRESS';
+      default:
+        return status.replaceAll('_', ' ');
     }
   }
 
@@ -191,7 +216,6 @@ class StatusBadge extends StatelessWidget {
     );
   }
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pulsing Dot indicator for machine status
@@ -217,9 +241,10 @@ class _PulsingDotState extends State<PulsingDot>
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     )..repeat(reverse: true);
-    _anim = Tween<double>(begin: 0.4, end: 1.0).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
-    );
+    _anim = Tween<double>(
+      begin: 0.4,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
   }
 
   @override

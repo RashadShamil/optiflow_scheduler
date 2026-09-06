@@ -1,29 +1,24 @@
-/// Represents a factory machine/resource in the Machine Shop.
+/// Customer-facing machine information returned by FastAPI.
 class MachineModel {
   final String id;
   final String name;
-  final String status;  // "Active" | "OFFLINE" | etc.
+  final String status;
   final String? imageUrl;
-  final double? pricePerHour;
+  final double pricePerHour;
 
   const MachineModel({
     required this.id,
     required this.name,
     required this.status,
+    required this.pricePerHour,
     this.imageUrl,
-    this.pricePerHour,
   });
 
-  factory MachineModel.fromJson(Map<String, dynamic> json) {
-    return MachineModel(
-      id: json['id']?.toString() ?? '',
-      name: json['name'] ?? 'Unnamed Machine',
-      status: json['status'] ?? 'Unknown',
-      imageUrl: json['image_url'],
-      pricePerHour: (json['price_per_hour'] as num?)?.toDouble(),
-    );
-  }
-
-  bool get isOnline =>
-      status.toLowerCase() != 'offline' && status.toLowerCase() != 'maintenance';
+  factory MachineModel.fromJson(Map<String, dynamic> json) => MachineModel(
+    id: json['id']?.toString() ?? '',
+    name: json['name']?.toString() ?? 'Machine',
+    status: json['status']?.toString() ?? 'UNKNOWN',
+    pricePerHour: (json['price_per_hour'] as num?)?.toDouble() ?? 0,
+    imageUrl: json['image_url']?.toString(),
+  );
 }

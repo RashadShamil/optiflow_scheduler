@@ -1,18 +1,14 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:optiflow_scheduler/slices/engine/dashboard/widgets/activity_section.dart';
-import 'package:optiflow_scheduler/core/services/supabase_service.dart';
-import 'package:optiflow_scheduler/slices/engine/dashboard/widgets/op_type_chart.dart';
-import 'package:optiflow_scheduler/slices/engine/dashboard/widgets/sidebar.dart';
-import 'package:optiflow_scheduler/slices/engine/dashboard/widgets/stat_card.dart';
-import 'package:optiflow_scheduler/slices/engine/dashboard/widgets/utilization_chart.dart';
-import 'package:optiflow_scheduler/slices/admin/machines_screen.dart';
-import 'package:optiflow_scheduler/slices/engine/schedule_screen.dart';
-import 'package:optiflow_scheduler/slices/engine/jobs_screen.dart';
+import 'package:optiflow_scheduler/core/services/api_service.dart';
 import 'package:optiflow_scheduler/core/utils/app_colors.dart';
+import 'package:optiflow_scheduler/slices/admin/approvals_screen.dart';
+import 'package:optiflow_scheduler/slices/admin/capabilities_screen.dart';
+import 'package:optiflow_scheduler/slices/admin/machines_screen.dart';
 import 'package:optiflow_scheduler/slices/admin/team_screen.dart';
-import 'package:optiflow_scheduler/slices/engine/analytics_screen.dart';
-import 'package:optiflow_scheduler/slices/admin/settings_screen.dart';
+import 'package:optiflow_scheduler/slices/engine/jobs_screen.dart';
+import 'package:optiflow_scheduler/slices/engine/schedule_screen.dart';
+
+import 'widgets/sidebar.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -21,58 +17,29 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen>
-    with SingleTickerProviderStateMixin {
+class _DashboardScreenState extends State<DashboardScreen> {
   int _selectedIndex = 0;
-
-  // Stats
-  int    _totalJobs       = 0;
-  int    _totalTasks      = 0;
-  int    _pendingTasks    = 0;
-  double _machineUptime   = 0;
-  int    _activeMachines  = 0;
-  int    _idleMachines    = 0;
-  int    _offlineMachines = 0;
-  Map<String, int> _tasksByOpType = {};
-  bool   _isLoading = true;
-
-  // Live clock
-  late Timer _clockTimer;
-  DateTime _now = DateTime.now();
-
-
+  bool _loading = true;
+  Map<String, dynamic> _stats = {};
 
   @override
   void initState() {
     super.initState();
-    _fetchDashboardData();
-
-    _clockTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) { if (mounted) setState(() => _now = DateTime.now()); },
-    );
+    _loadStats();
   }
 
-  @override
-  void dispose() {
-    _clockTimer.cancel();
-    super.dispose();
-  }
-
-  Future<void> _fetchDashboardData() async {
-    final stats = await SupabaseService.instance.fetchDashboardStats();
-    if (mounted) {
-      setState(() {
-        _totalJobs       = stats['total_jobs']       as int? ?? 0;
-        _totalTasks      = stats['total_tasks']      as int? ?? 0;
-        _pendingTasks    = stats['pending_tasks']    as int? ?? 0;
-        _machineUptime   = (stats['uptime_pct'] as num?)?.toDouble() ?? 0.0;
-        _activeMachines  = stats['active_machines']  as int? ?? 0;
-        _idleMachines    = stats['idle_machines']    as int? ?? 0;
-        _offlineMachines = (stats['offline_machines'] as List?)?.length ?? 0;
-        _tasksByOpType   = Map<String, int>.from(stats['tasks_by_op_type'] ?? {});
-        _isLoading       = false;
-      });
+  Future<void> _loadStats() async {
+    setState(() => _loading = true);
+    try {
+      final stats = await ApiService.instance.fetchDashboardStats();
+      if (mounted) {
+        setState(() {
+          _stats = stats;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -81,153 +48,140 @@ class _DashboardScreenState extends State<DashboardScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Sidebar(
             selectedIndex: _selectedIndex,
-            onItemSelected: (i) => setState(() => _selectedIndex = i),
+            onItemSelected: (index) => setState(() => _selectedIndex = index),
           ),
-          Expanded(child: _buildCurrentPage()),
+          Expanded(child: _page()),
         ],
       ),
     );
   }
 
-  Widget _buildCurrentPage() {
-    switch (_selectedIndex) {
-      case 0: return _buildCommandCenter();
-      case 1: return const MachinesScreen();
-      case 2: return const ScheduleScreen();
-      case 3: return const JobsScreen();
-      case 4: return const TeamScreen();
-      case 5: return const AnalyticsScreen();
-      case 6: return const SettingsScreen();
-      default: return _buildCommandCenter();
-    }
+  Widget _page() {
+    return switch (_selectedIndex) {
+      1 => const MachinesScreen(),
+      2 => const JobsScreen(),
+      3 => const ScheduleScreen(),
+      4 => const TeamScreen(),
+      5 => const CapabilitiesScreen(),
+      6 => const ApprovalsScreen(),
+      _ => _dashboard(),
+    };
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // COMMAND CENTER MAIN CONTENT
-  // ─────────────────────────────────────────────────────────────────────────
-
-  Widget _buildCommandCenter() {
-    if (_isLoading) {
+  Widget _dashboard() {
+    if (_loading) {
       return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
-            SizedBox(height: 16),
-            Text('Initialising Command Center…',
-                style: TextStyle(
-                    color: AppColors.textSecondary, fontSize: 13)),
-          ],
-        ),
+        child: CircularProgressIndicator(color: AppColors.primary),
       );
     }
 
-    return Column(
-      children: [
-        _buildTopBar(),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(28, 0, 28, 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                _buildMachineStatusStrip(),
-                const SizedBox(height: 24),
-                _buildStatsRow(),
-                const SizedBox(height: 24),
-                _buildChartsRow(),
-                const SizedBox(height: 24),
-                _buildBottomRow(),
-              ],
-            ),
+    final offline = (_stats['offline_machines'] as List?)?.length ?? 0;
+    final cards = [
+      ('Total Jobs', _stats['total_jobs'] ?? 0, Icons.inventory_2_rounded),
+      (
+        'Pending Tasks',
+        _stats['pending_tasks'] ?? 0,
+        Icons.pending_actions_rounded,
+      ),
+      (
+        'Active Machines',
+        _stats['active_machines'] ?? 0,
+        Icons.precision_manufacturing_rounded,
+      ),
+      ('Offline Machines', offline, Icons.warning_amber_rounded),
+      (
+        'Booking Approvals',
+        _stats['pending_booking_approvals'] ?? 0,
+        Icons.approval_rounded,
+      ),
+      (
+        'Open External Work',
+        _stats['open_external_work_offers'] ?? 0,
+        Icons.work_outline_rounded,
+      ),
+    ];
+
+    return RefreshIndicator(
+      onRefresh: _loadStats,
+      child: ListView(
+        padding: const EdgeInsets.all(32),
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Dashboard',
+                    style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Live print-shop operations',
+                    style: TextStyle(color: AppColors.textSecondary),
+                  ),
+                ],
+              ),
+              IconButton(
+                onPressed: _loadStats,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ],
           ),
-        ),
-      ],
+          const SizedBox(height: 28),
+          Wrap(
+            spacing: 16,
+            runSpacing: 16,
+            children: cards
+                .map((card) => _metricCard(card.$1, card.$2, card.$3))
+                .toList(),
+          ),
+          const SizedBox(height: 28),
+          _alerts(),
+          const SizedBox(height: 28),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _operationSummary()),
+              const SizedBox(width: 20),
+              Expanded(child: _recentActivity()),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
-  // ── Top Bar ──────────────────────────────────────────────────────────────
-
-  Widget _buildTopBar() {
-    final timeStr = _formatTime(_now);
-    final dateStr = _formatDate(_now);
-
+  Widget _metricCard(String label, dynamic value, IconData icon) {
     return Container(
-      height: 64,
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      decoration: const BoxDecoration(
+      width: 240,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
         color: AppColors.surface,
-        border: Border(bottom: BorderSide(color: AppColors.border, width: 1)),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.surfaceLight),
       ),
       child: Row(
         children: [
-          // Page title
-          const Text(
-            'Command Center',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
-              letterSpacing: -0.5,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: AppColors.matteBlue.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(4),
-              border:
-                  Border.all(color: AppColors.matteBlue.withOpacity(0.3)),
-            ),
-            child: const Text(
-              'LIVE',
-              style: TextStyle(
-                color: AppColors.matteBlue,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.2,
-              ),
-            ),
-          ),
-          const Spacer(),
-          // Refresh
-          IconButton(
-            onPressed: () {
-              setState(() => _isLoading = true);
-              SupabaseService.instance.invalidateCache();
-              _fetchDashboardData();
-            },
-            icon: const Icon(Icons.refresh_rounded,
-                color: AppColors.textSecondary, size: 18),
-            tooltip: 'Refresh',
-          ),
-          const SizedBox(width: 8),
-          // Clock
+          Icon(icon, color: AppColors.primary),
+          const SizedBox(width: 14),
           Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                timeStr,
+                '$value',
                 style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 15,
-                  fontFamily: 'monospace',
-                  letterSpacing: 1,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
               Text(
-                dateStr,
-                style: const TextStyle(
-                    color: AppColors.textMuted, fontSize: 11),
+                label,
+                style: const TextStyle(color: AppColors.textSecondary),
               ),
             ],
           ),
@@ -236,200 +190,161 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  // ── Machine Status Strip ─────────────────────────────────────────────────
-
-  Widget _buildMachineStatusStrip() {
-    final metrics = [
-      (_activeMachines,  'ACTIVE',   AppColors.matteGreen),
-      (_idleMachines,    'IDLE',     AppColors.matteAmber),
-      (_offlineMachines, 'OFFLINE',  AppColors.matteRed),
-    ];
-
-    return Row(
-      children: metrics.map((m) {
-        final count = m.$1;
-        final label = m.$2;
-        final color = m.$3;
-        return Padding(
-          padding: const EdgeInsets.only(right: 12),
-          child: _MachineStatusPill(count: count, label: label, color: color),
-        );
-      }).toList(),
+  Widget _alerts() {
+    final overdue = (_stats['overdue_jobs'] as List?) ?? [];
+    final offline = (_stats['offline_machines'] as List?) ?? [];
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.surfaceLight),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Attention Needed',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 12),
+          if (overdue.isEmpty && offline.isEmpty)
+            const Text(
+              'No active alerts.',
+              style: TextStyle(color: AppColors.success),
+            )
+          else ...[
+            ...offline.map(
+              (item) => _alertRow(
+                Icons.power_off_rounded,
+                '${item['name']} is ${item['status']}',
+              ),
+            ),
+            ...overdue.map(
+              (item) => _alertRow(
+                Icons.schedule_rounded,
+                '${item['title']} is overdue (${item['priority']})',
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
-  // ── Stats Row ────────────────────────────────────────────────────────────
+  Widget _operationSummary() {
+    final raw = (_stats['tasks_by_op_type'] as Map?) ?? const {};
+    final entries = raw.entries.toList()
+      ..sort((a, b) => (b.value as num).compareTo(a.value as num));
+    return _panel(
+      'Tasks by Operation',
+      entries.isEmpty
+          ? const [
+              Text(
+                'No task data yet.',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ]
+          : entries
+                .take(8)
+                .map(
+                  (entry) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    child: Row(
+                      children: [
+                        Expanded(child: Text(entry.key.toString())),
+                        Text(
+                          entry.value.toString(),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+                .toList(),
+    );
+  }
 
-  Widget _buildStatsRow() {
-    return Row(
+  Widget _recentActivity() {
+    final tasks = (_stats['recent_tasks'] as List?) ?? const [];
+    final jobs = (_stats['new_jobs'] as List?) ?? const [];
+    final children = <Widget>[];
+    for (final raw in tasks.take(4)) {
+      final task = Map<String, dynamic>.from(raw as Map);
+      final job = task['jobs'] is Map ? (task['jobs'] as Map)['title'] : null;
+      children.add(
+        _activityRow(
+          Icons.check_circle_outline_rounded,
+          '${task['name']} completed${job == null ? '' : ' · $job'}',
+        ),
+      );
+    }
+    for (final raw in jobs.take(4)) {
+      final job = Map<String, dynamic>.from(raw as Map);
+      children.add(
+        _activityRow(Icons.add_task_rounded, 'New job: ${job['title']}'),
+      );
+    }
+    return _panel(
+      'Recent Activity',
+      children.isEmpty
+          ? const [
+              Text(
+                'No recent activity.',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ]
+          : children,
+    );
+  }
+
+  Widget _activityRow(IconData icon, String text) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: Row(
       children: [
+        Icon(icon, size: 17, color: AppColors.primary),
+        const SizedBox(width: 9),
         Expanded(
-          child: StatCard(
-            title: 'Total Jobs',
-            value: '$_totalJobs',
-            icon: Icons.inventory_2_rounded,
-            iconColor: AppColors.secondary,
-            percentage: 0,
-            comparisonText: 'in system',
-            isIncreasePositive: true,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: StatCard(
-            title: 'Pending Tasks',
-            value: '$_pendingTasks',
-            icon: Icons.hourglass_top_rounded,
-            iconColor: AppColors.matteAmber,
-            percentage: 0,
-            comparisonText: 'awaiting scheduling',
-            isIncreasePositive: false,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: StatCard(
-            title: 'Machine Uptime',
-            value: '${_machineUptime.toStringAsFixed(0)}%',
-            icon: Icons.precision_manufacturing_rounded,
-            iconColor: AppColors.matteBlue,
-            percentage: 0,
-            comparisonText: 'fleet active',
-            isIncreasePositive: true,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: StatCard(
-            title: 'Total Tasks',
-            value: '$_totalTasks',
-            icon: Icons.account_tree_rounded,
-            iconColor: AppColors.matteGreen,
-            percentage: 0,
-            comparisonText: 'across all jobs',
-            isIncreasePositive: true,
+          child: Text(
+            text,
+            style: const TextStyle(color: AppColors.textSecondary),
           ),
         ),
       ],
-    );
-  }
+    ),
+  );
 
-  // ── Charts Row ───────────────────────────────────────────────────────────
+  Widget _panel(String title, List<Widget> children) => Container(
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: AppColors.surfaceLight),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 12),
+        ...children,
+      ],
+    ),
+  );
 
-  Widget _buildChartsRow() {
-    return SizedBox(
-      height: 340,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            flex: 5,
-            child: OpTypeChart(tasksByOpType: _tasksByOpType),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            flex: 3,
-            child: UtilizationChart(
-              activeMachines:  _activeMachines,
-              idleMachines:    _idleMachines,
-              offlineMachines: _offlineMachines,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Bottom Row ───────────────────────────────────────────────────────────
-
-  Widget _buildBottomRow() {
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: const [
-          Expanded(flex: 1, child: LiveAlerts()),
-          SizedBox(width: 16),
-          Expanded(flex: 2, child: RecentActivity()),
-        ],
-      ),
-    );
-  }
-
-  // ── Helpers ──────────────────────────────────────────────────────────────
-
-  String _formatTime(DateTime dt) {
-    final h = dt.hour.toString().padLeft(2, '0');
-    final m = dt.minute.toString().padLeft(2, '0');
-    final s = dt.second.toString().padLeft(2, '0');
-    return '$h:$m:$s';
-  }
-
-  String _formatDate(DateTime dt) {
-    const months = [
-      'Jan','Feb','Mar','Apr','May','Jun',
-      'Jul','Aug','Sep','Oct','Nov','Dec'
-    ];
-    const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    final wd = days[dt.weekday - 1];
-    return '$wd ${dt.day} ${months[dt.month - 1]} ${dt.year}';
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Machine Status Pill — top strip showing live counts with neon glow
-// ─────────────────────────────────────────────────────────────────────────────
-class _MachineStatusPill extends StatelessWidget {
-  final int count;
-  final String label;
-  final Color color;
-
-  const _MachineStatusPill({
-    required this.count,
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Solid dot
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            '${count}',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w600,
-              fontSize: 15,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _alertRow(IconData icon, String text) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: Row(
+      children: [
+        Icon(icon, size: 18, color: AppColors.warning),
+        const SizedBox(width: 10),
+        Text(text, style: const TextStyle(color: AppColors.textSecondary)),
+      ],
+    ),
+  );
 }
