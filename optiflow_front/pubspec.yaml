@@ -38,8 +38,8 @@ dependencies:
   http: ^1.2.0
   flutter_riverpod: ^2.5.1
 
-  # Auth: Supabase is used ONLY for email/password sign-in and session management.
-  # All CRUD operations go through FastAPI via the http package above.
+  # Supabase provides authentication and manager-side read models.
+  # Business mutations and role-sensitive mobile flows go through FastAPI.
   supabase_flutter: ^2.5.0
 
   # UI: Shimmer skeleton loaders for premium loading states

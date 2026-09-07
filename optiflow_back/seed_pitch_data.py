@@ -1,3 +1,9 @@
+"""DESTRUCTIVE DEVELOPMENT SEED.
+
+This script deletes existing operational data before inserting demo/pitch data.
+Run it only against a disposable development Supabase project.
+"""
+
 import os
 import uuid
 from datetime import datetime, timedelta

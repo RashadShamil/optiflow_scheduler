@@ -247,6 +247,7 @@ class _NewJobOrderState extends State<NewJobOrder> {
       "client_name": _clientNameController.text.isEmpty ? "Unknown" : _clientNameController.text,
       "total_quantity": int.tryParse(_totalQuantityController.text) ?? 1,
       "deadline": _deadline?.toIso8601String() ?? DateTime.now().add(const Duration(days: 7)).toIso8601String(),
+      "priority": _priority.toUpperCase(),
       "created_by": null, 
       "tasks": tasksData,
       "dependencies": dependencies,

@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# IDE-local files
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+coverage/
+**/build/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.log
+*.swp

@@ -1,70 +1,125 @@
-from pydantic import BaseModel, Field
-from typing import Optional
+"""Pydantic request models used by the OptiFlow API.
 
-# =====================================================================
-# PYDANTIC MODELS (Data Validation & Security)
-# These classes define the exact "shape" the JSON data must have.
-# =====================================================================
+Database rows stay in Supabase; these models validate only data entering the API.
+Keeping them in one file avoids duplicated validation rules across endpoints.
+"""
 
-# ─────────────────────────────────────────
-# OPERATION TYPES
-# ─────────────────────────────────────────
+from typing import List, Optional
+
+from pydantic import BaseModel, Field, field_validator
+
 
 class OperationTypeCreate(BaseModel):
-    """Used when creating a new operation (e.g., POST request). Name is strictly required."""
-    name: str
+    name: str = Field(min_length=1)
+
 
 class OperationTypeUpdate(BaseModel):
-    """Used when updating (PUT request). Name is optional because 
-       you might not want to change it during an update."""
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1)
 
-
-# ─────────────────────────────────────────
-# RESOURCES (Machines & Workers)
-# ─────────────────────────────────────────
 
 class ResourceCreate(BaseModel):
-    """Defines the exact shape of data needed to register a machine/worker."""
-    name: str
+    name: str = Field(min_length=1)
     type: str
-    # If the Flutter app forgets to send a status, the API won't crash. 
-    # It will safely and automatically default to "ACTIVE".
-    status: Optional[str] = "ACTIVE"
+    status: str = "ACTIVE"
+    profile_id: Optional[str] = None
+    auth_user_id: Optional[str] = None
+    price_per_hour: Optional[float] = Field(default=None, ge=0)
+    image_url: Optional[str] = None
+    bookable: bool = False
+    is_external: bool = False
+
 
 class ResourceUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1)
     type: Optional[str] = None
     status: Optional[str] = None
+    profile_id: Optional[str] = None
+    auth_user_id: Optional[str] = None
+    price_per_hour: Optional[float] = Field(default=None, ge=0)
+    image_url: Optional[str] = None
+    bookable: Optional[bool] = None
+    is_external: Optional[bool] = None
 
-
-# ─────────────────────────────────────────
-# CAPABILITIES (The Skills Matrix)
-# ─────────────────────────────────────────
 
 class CapabilityCreate(BaseModel):
-    """This is critical for your math engine. It forces the Flutter app to 
-       provide strictly valid numbers for processing speed and cost."""
     resource_id: str
     operation_type_id: str
-    
-    # Field(..., gt=0) means: This field is REQUIRED (...), and it 
-    # MUST be Greater Than Zero (gt=0). If the Flutter app sends 
-    # "-50" or "0" for the processing rate, Pydantic will instantly 
-    # block the request and return a 422 Unprocessable Entity error.
-    processing_rate_per_hr: float = Field(..., gt=0)
-    
-    setup_time_minutes: Optional[int] = 0
-    
-    # Cost per hour must also be strictly positive.
-    cost_per_hour: float = Field(..., gt=0)
+    processing_rate_per_hr: float = Field(gt=0)
+    setup_time_minutes: int = Field(default=0, ge=0)
+    cost_per_hour: float = Field(gt=0)
+
 
 class CapabilityUpdate(BaseModel):
-    processing_rate_per_hr: Optional[float] = Field(None, gt=0)
-    setup_time_minutes: Optional[int] = None
-    cost_per_hour: Optional[float] = Field(None, gt=0)
+    processing_rate_per_hr: Optional[float] = Field(default=None, gt=0)
+    setup_time_minutes: Optional[int] = Field(default=None, ge=0)
+    cost_per_hour: Optional[float] = Field(default=None, gt=0)
 
-class OptimizationRequest(BaseModel):
-    # If the Flutter app doesn't send them, default to 70% Time / 30% Cost
-    alpha: int = 70  
-    beta: int = 30
+
+class TaskDependencyInput(BaseModel):
+    predecessor_index: int = Field(ge=0)
+    successor_index: int = Field(ge=0)
+    mandatory_wait_minutes: int = Field(default=0, ge=0)
+
+
+class TaskInput(BaseModel):
+    operation_type_id: str
+    name: str = Field(min_length=1)
+    quantity_to_process: int = Field(gt=0)
+    processing_time_minutes: Optional[int] = Field(default=None, gt=0)
+    break_after_minutes: int = Field(default=0, ge=0)
+    break_type: str = "NONE"
+    show_in_mobile: bool = True
+    machine_required: bool = False
+    human_required: bool = False
+
+    @field_validator("break_type")
+    @classmethod
+    def validate_break_type(cls, value: str) -> str:
+        value = value.upper()
+        if value not in {"NONE", "HUMAN", "MACHINE"}:
+            raise ValueError("break_type must be NONE, HUMAN, or MACHINE")
+        return value
+
+
+class JobOrderInput(BaseModel):
+    title: str = Field(min_length=1)
+    client_name: Optional[str] = None
+    total_quantity: int = Field(gt=0)
+    deadline: str
+    created_by: Optional[str] = None
+    priority: str = "MEDIUM"
+    tasks: List[TaskInput]
+    dependencies: List[TaskDependencyInput] = []
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, value: str) -> str:
+        value = value.upper()
+        if value not in {"HIGH", "MEDIUM", "LOW"}:
+            raise ValueError("priority must be HIGH, MEDIUM, or LOW")
+        return value
+
+
+class TaskStatusUpdate(BaseModel):
+    status: str
+
+
+class TaskCompletionRequest(BaseModel):
+    proof_url: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class BookingRequest(BaseModel):
+    machine_id: str
+    user_name: Optional[str] = None
+    start_time: str
+    end_time: str
+    notes: Optional[str] = None
+
+
+class WorkOfferCreate(BaseModel):
+    task_id: str
+    pay_amount: float = Field(gt=0)
+    estimated_minutes: int = Field(gt=0)
+    approved_by_user_id: str
+    notes: Optional[str] = None

@@ -14,14 +14,16 @@ class AddMachineScreen extends StatefulWidget {
 class _AddMachineScreenState extends State<AddMachineScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
-  String _selectedType = "FDM Printer";
+  String _selectedType = "Digital Press";
   bool _isSubmitting = false;
 
   final List<String> _machineTypes = [
-    "FDM Printer",
-    "SLA Printer",
-    "CNC Mill",
-    "Laser Cutter",
+    "Offset Press",
+    "Digital Press",
+    "Large Format Printer",
+    "Guillotine Cutter",
+    "Binding Machine",
+    "Folding Machine",
     "Other",
   ];
 

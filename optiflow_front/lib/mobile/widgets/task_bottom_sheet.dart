@@ -291,7 +291,7 @@ class _QAProofSheetState extends State<_QAProofSheet> {
           : 'no_photo_provided';
 
       await ApiService.instance.submitJobProof(
-        jobId: widget.task.id,  // Using task.id as the job proxy
+        jobId: widget.task.id, // ApiService correctly maps this to the task completion endpoint
         proofUrl: proofUrl,
         notes: _notesCtrl.text.trim().isEmpty
             ? 'No notes.'
