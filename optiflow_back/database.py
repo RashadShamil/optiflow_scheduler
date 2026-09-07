@@ -10,9 +10,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from supabase import Client, create_client
 
-# Load optiflow_back/.env for local development, then fall back to the current
-# working directory. Render/production uses real environment variables.
+# Load local environment variables (.env.local or .env in optiflow_back or repo root)
+load_dotenv(Path(__file__).with_name(".env.local"), override=False)
 load_dotenv(Path(__file__).with_name(".env"), override=False)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env.local", override=False)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 load_dotenv(override=False)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")

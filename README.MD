@@ -197,6 +197,8 @@ The backend application contains two main route layers exposed by FastAPI:
    ```
 
 3. **Run the application:**
+   *   **All-in-One Launcher:**
+       Double-click or run `./run_all.bat` from the root directory to simultaneously launch the FastAPI backend, the Windows desktop dashboard, and the mobile application in dedicated terminal windows.
    *   **Windows Desktop:**
        Ensure Windows Developer Mode is enabled, then run:
        ```bash
